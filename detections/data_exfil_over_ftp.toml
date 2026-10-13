@@ -1,0 +1,33 @@
+[metadata]
+creation_date = "2023/10/11"
+updated_date = "2026/09/06"
+
+[rule]
+author = ["John Ndukwe"]
+description = "Identifies a Zeek FTP STOR command whose argument ends in .zip. Investigate destination, transfer result, and authorization before concluding exfiltration. This event alone does not establish automation or a successful transfer."
+from = "now-6m"
+name = "Data Exfiltration Observed via FTP"
+risk_score = 75
+severity = "high"
+type = "query"
+language = "kuery"
+rule_id = "00000000-0000-0000-0000-000000000003"
+query = '''
+event.dataset : zeek.ftp and event.action : STOR and zeek.ftp.arg : *.zip
+'''
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+[[rule.threat.technique]]
+id = "T1048"
+name = "Exfiltration Over Alternative Protocol"
+reference = "https://attack.mitre.org/techniques/T1048/"
+[[rule.threat.technique.subtechnique]]
+id = "T1048.003"
+name = "Exfiltration Over Unencrypted Non-C2 Protocol"
+reference = "https://attack.mitre.org/techniques/T1048/003/"
+
+[rule.threat.tactic]
+id = "TA0010"
+name = "Exfiltration"
+reference = "https://attack.mitre.org/tactics/TA0010/"
