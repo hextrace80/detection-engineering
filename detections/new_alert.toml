@@ -6,12 +6,12 @@ updated_date = "2026/09/06"
 author = ["John Ndukwe"]
 description = "Identifies a Zeek FTP STOR command whose argument ends in .zip. Investigate destination, transfer result, and authorization before concluding exfiltration. This event alone does not establish automation or a successful transfer."
 from = "now-6m"
-name = "Data Exfiltration Observed via FTP"
+name = "new alert"
 risk_score = 65
 severity = "high"
 type = "query"
 language = "kuery"
-rule_id = "00000000-0000-0000-0000-000000000003"
+rule_id = "00000000-0000-0000-0000-000000000013"
 query = '''
 event.dataset : zeek.ftp and event.action : STOR and zeek.ftp.arg : *.zip
 '''
