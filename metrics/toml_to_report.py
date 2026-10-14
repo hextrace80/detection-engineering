@@ -17,7 +17,7 @@ current = {}
 one_month = {}
 two_months = {}
 
-for root, dirs, files in os.walk(r"C:\Users\13473\Desktop\Detection Engineering\python\GITHUB\test_push"):
+for root, dirs, files in os.walk("detections/"):
     for file in files:
         if file.endswith(".toml"):
           full_path = os.path.join (root, file)
@@ -74,7 +74,7 @@ for root, dirs, files in os.walk(r"C:\Users\13473\Desktop\Detection Engineering\
 
 
 
-output_path = r"C:\Users\13473\Desktop\Detection Engineering\python\GITHUB\metrics\recentdetections.md"
+output_path = "metrics/latestdetections.md"
 
 outF = open(output_path, "w")
 outF.write("# Detection Report\n")
