@@ -75,16 +75,12 @@ for root, dirs, files in os.walk("detections/"):
 
 
 output_path = "metrics/latestdetections.md"
-<<<<<<< HEAD
 separator = "; "
-#update to push
-=======
 
->>>>>>> parent of 4f91b32 (update)
 outF = open(output_path, "w")
 outF.write("# Detection Report\n")
 
-#current month
+
 for line in current.values():
     date = line['date']
     name = line['name']
