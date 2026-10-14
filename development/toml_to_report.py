@@ -12,7 +12,7 @@ filtered_object_array = []
 today = datetime.date.today()
 current_month = str(today).split("-")[0] + "-" + str(today).split("-")[1]
 one_month_ago = str(today - relativedelta(months=1)).split("-")[0] + "-" + str(today - relativedelta(months=1)).split("-")[1]
-two_month_ago = str(today - relativedelta(months=1)).split("-")[0] + "-" + str(today - relativedelta(months=2)).split("-")[1]
+two_months_ago = str(today - relativedelta(months=1)).split("-")[0] + "-" + str(today - relativedelta(months=2)).split("-")[1]
 
 for root, dirs, files in os.walk("detections/"):
     for file in files:
