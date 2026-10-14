@@ -65,7 +65,7 @@ for root, dirs, files in os.walk("detections/"):
 
 output_path = "metrics/latestdetections.md"
 separator = "; "
-
+#update to push
 outF = open(output_path, "w")
 outF.write("# Detection Report\n")
 

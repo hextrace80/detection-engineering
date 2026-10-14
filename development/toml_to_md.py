@@ -16,7 +16,7 @@ two_months_ago = str(today - relativedelta(months=2)).split("-")[0] + "-" + str(
 current = {}
 one_month = {}
 two_months = {}
-
+#update to push
 for root, dirs, files in os.walk("detections/"):
     for file in files:
         if file.endswith(".toml"):
