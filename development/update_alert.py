@@ -1,6 +1,7 @@
 import requests
 import os
 import tomllib
+import json
 
 url = "https://my-security-project-ed39ef.kb.us-east4.gcp.elastic.cloud/api/detection_engine/rules"
 
@@ -52,30 +53,30 @@ for root, dirs, files in os.walk("detections/"):
      
        
 
-    rule_id = alert["rule"]["rule_id"]
-    update_url=url + "?rule_id=" + rule_id
-              
-       
-    import json
-       
-              
-               
-       
-    response = requests.put(update_url, headers=headers, json=payload, timeout=30)
-    print("PUT status:", response.status_code)
-    print("PUT response:", response.text)
-    
-    if response.status_code == 404:
-            print("Rule does not exist. Trying POST to create it.")
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            print("POST status:", response.status_code)
-            print("POST response:", response.text)
-
-    response.raise_for_status()
-    print(json.dumps(payload, indent=2))
-    print(response.status_code)
-    print(response.text)
+        rule_id = alert["rule"]["rule_id"]
+        update_url=url + "?rule_id=" + rule_id
+                
         
-       
-           # elastic_data = requests.post(url, headers=headers, data=data).json()
-           # print (elastic_data)
+      
+        
+                
+                
+        
+        response = requests.put(update_url, headers=headers, json=payload, timeout=30)
+        print("PUT status:", response.status_code)
+        print("PUT response:", response.text)
+        
+        if response.status_code == 404:
+                print("Rule does not exist. Trying POST to create it.")
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                print("POST status:", response.status_code)
+                print("POST response:", response.text)
+
+        response.raise_for_status()
+        print(json.dumps(payload, indent=2))
+        print(response.status_code)
+        print(response.text)
+            
+        
+            # elastic_data = requests.post(url, headers=headers, data=data).json()
+            # print (elastic_data)
