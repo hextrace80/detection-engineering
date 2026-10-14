@@ -39,4 +39,4 @@ jobs:
         run: |
 
           pip install requests
-          python  development/update_toml_to_json.py
+          python  development/update_alert.py
