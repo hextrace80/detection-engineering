@@ -60,7 +60,7 @@ for root, dirs, files in os.walk("detections/"):
                     current[file] = obj
                 elif date_compare == one_month_ago:
                     one_month[file] = obj
-                elif date_compare == two_month_ago:
+                elif date_compare == two_months_ago:
                     two_months[file] = obj
 
 output_path = "metrics/latestdetections.md"
