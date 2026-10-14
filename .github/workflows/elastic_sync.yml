@@ -9,7 +9,7 @@ on:
     branches:
       - main
     paths:
-      '**.toml'  
+      - 'detections/**/*.toml'  
 # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
