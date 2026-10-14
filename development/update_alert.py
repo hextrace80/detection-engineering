@@ -49,20 +49,33 @@ for root, dirs, files in os.walk("detections/"):
         
 
 
-        rule_id = alert["rule"]["rule_id"]
-        url=url + "?rule_id=" + rule_id
+     
        
 
-        import json
-
+    rule_id = alert["rule"]["rule_id"]
+    update_url=url + "?rule_id=" + rule_id
+              
        
-        
-        response = requests.put(url, headers=headers, json=payload, timeout=30)
-        
-        print(json.dumps(payload, indent=2))
-        print(response.status_code)
-        print(response.text)
+    import json
+       
+              
+               
+       
+    response = requests.put(update_url, headers=headers, json=payload, timeout=30)
+    print("PUT status:", response.status_code)
+    print("PUT response:", response.text)
     
+    if response.status_code == 404:
+        print("Rule does not exist. Trying POST to create it.")
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        print("POST status:", response.status_code)
+        print("POST response:", response.text)
 
-    # elastic_data = requests.post(url, headers=headers, data=data).json()
-    # print (elastic_data)
+    response.raise_for_status()
+    print(json.dumps(payload, indent=2))
+    print(response.status_code)
+    print(response.text)
+        
+       
+           # elastic_data = requests.post(url, headers=headers, data=data).json()
+           # print (elastic_data)
