@@ -13,12 +13,12 @@ headers = {
 }
 
 
-
+changed_files = os.environ["CHANGED_FILES"]
 
 
 for root, dirs, files in os.walk("detections/"):
     for file in files:
-      
+      if file in changed_files:
         if file.endswith(".toml"):
           full_path = os.path.join (root, file)
           with open(full_path,"rb") as toml:
