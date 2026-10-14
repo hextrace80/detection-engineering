@@ -66,10 +66,10 @@ for root, dirs, files in os.walk("detections/"):
     print("PUT response:", response.text)
     
     if response.status_code == 404:
-        print("Rule does not exist. Trying POST to create it.")
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-        print("POST status:", response.status_code)
-        print("POST response:", response.text)
+            print("Rule does not exist. Trying POST to create it.")
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            print("POST status:", response.status_code)
+            print("POST response:", response.text)
 
     response.raise_for_status()
     print(json.dumps(payload, indent=2))
