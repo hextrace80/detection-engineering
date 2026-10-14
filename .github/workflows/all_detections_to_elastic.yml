@@ -1,0 +1,30 @@
+
+
+name: All Detections To Elastic
+
+# Controls when the workflow will run
+
+on:
+# Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  elastic-detections-all:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    env:
+      ELASTIC_KEY: ${{ secrets.ELASTIC_KEY}}
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+
+  
+      # Runs these scripts bellow
+      
+      - run: python  development/update_toml_to_json.py
+      
+        
+          
