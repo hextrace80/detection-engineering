@@ -6,8 +6,10 @@ name: Updating Detections
 
 on:
   push:
-      paths:
-        '**.toml'  
+    branches:
+      - main
+    paths:
+      '**.toml'  
 # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
