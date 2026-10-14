@@ -1,6 +1,0 @@
-name,date,author,risk_score,severity,tactic,technique,subtechnique
-Data Archive for Potential Exfil,2023/11/11,['John Ndukwe'],20,medium,Collection,T1074 - Data Staged,T1074.001 - Local Data Staging
-Suspicious File Added to Registry,2023/05/11,['John Ndukwe'],75,high,Persistence,T1547 - Boot or Logon Autostart Execution,T1547.001 - Registry Run Keys / Startup Folder
-Suspicious File Written to Temp Directory,2023/06/11,['John Ndukwe'],75,high,Discovery ; Discovery,T1082 - System Information Discovery ; T1217 - Browser Information Discovery,none - none ; none - none
-Test Alert,2023/11/11,['John Ndukwe'],20,medium,Collection,T1074 - Data Staged,T1074.001 - Local Data Staging
-Web scanner activity -nmap and Nikto,2023/04/11,['John Ndukwe'],25,low,Discovery,T1046 - Network Service Discovery,none - none
