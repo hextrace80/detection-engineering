@@ -23,7 +23,8 @@ jobs:
   
       # Runs these scripts bellow
       
-      - run: |
-            python  development/validation1.py
-            python  development/mitre.py
+      - run: python  development/validation1.py
+      - run: python  development/validation1.py
+            
+        
           
