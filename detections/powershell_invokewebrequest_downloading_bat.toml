@@ -10,6 +10,7 @@ risk_score = 40
 severity = "medium"
 type = "query"
 rule_id = "00000000-0000-0000-0000-000000000007"
+index = ["logs-windows.sysmon_operational-*"]
 query = '''
 process.command_line: *Invoke-WebRequest* and process.command_line:*bat*
 '''

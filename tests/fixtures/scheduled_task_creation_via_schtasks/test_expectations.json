@@ -3,7 +3,9 @@
   "expected_rule_metadata": {
     "severity": "medium",
     "risk_score": 47,
-    "mitre_subtechnique_id": "T1053.005"
+    "mitre_subtechnique_id": "T1053.005",
+    "index": ["logs-windows.sysmon_operational-*"]
+
   },
   
     "expected_query_fragments": [

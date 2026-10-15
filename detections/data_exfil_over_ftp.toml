@@ -12,6 +12,7 @@ severity = "high"
 type = "query"
 language = "kuery"
 rule_id = "00000000-0000-0000-0000-000000000003"
+index = ["logs-windows.sysmon_operational-*"]
 query = '''
 event.dataset : zeek.ftp and event.action : STOR and zeek.ftp.arg : *.zip
 '''

@@ -10,6 +10,7 @@ risk_score = 50
 severity = "medium"
 type = "query"
 rule_id = "00000000-0000-0000-0000-000000000001"
+index = ["logs-windows.sysmon_operational-*"]
 query = '''
 event.dataset: zeek.http and url.extension : bat and not destination.port : 80
 '''

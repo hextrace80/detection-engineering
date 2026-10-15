@@ -9,6 +9,7 @@ risk_score = 47
 severity = "medium"
 type = "query"
 from = "now-6m"
+index = ["logs-windows.sysmon_operational-*"]
 query = '''
 event.category: process and process.name: schtasks.exe and process.command_line: *Create* and event.dataset: "windows.sysmon_operational"
 '''

@@ -10,6 +10,7 @@ risk_score = 20
 severity = "high"
 type = "query"
 rule_id = "00000000-0000-0000-0000-000000000008"
+index = ["logs-windows.sysmon_operational-*"]
 query = '''
 event.dataset : "windows.sysmon_operational" and event.action : "Registry value set (rule: RegistryEvent)" and registry.path : *Microsoft\\\\Windows\\\\CurrentVersion\\\\Run* and registry.data.strings : *.ps1
 '''
