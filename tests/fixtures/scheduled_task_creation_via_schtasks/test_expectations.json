@@ -1,0 +1,27 @@
+{
+  "rule_file": "detections/scheduled_task_creation_via_schtasks.toml",
+  "expected_rule_metadata": {
+    "severity": "medium",
+    "risk_score": 47,
+    "mitre_subtechnique_id": "T1053.005"
+  },
+  
+    "expected_query_fragments": [
+    "event.category: process",
+    "process.name: schtasks.exe",
+    "process.command_line: *Create*",
+    "event.dataset: \"windows.sysmon_operational\""
+  ],
+  
+  
+  "test_cases": [
+    {
+      "fixture": "positive_process_creation.json",
+      "expected_match": true
+    },
+    {
+      "fixture": "negative_process_creation.json",
+      "expected_match": false
+    }
+  ]
+}
