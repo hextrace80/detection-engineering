@@ -8,6 +8,7 @@
 |Excessive Web Traffic|2026/10/11|['John Ndukwe']|60|low|
 |PowerShell Execution via a BAT File|2026/10/11|['John Ndukwe']|15|medium|
 |Web scanner activity -nmap and Nikto|2026/10/11|['John Ndukwe']|25|low|
+|Scheduled Task Creation via Schtasks|2026/10/15|['John Ndukwe']|47|medium|
 |Data Archive for Potential Exfil|2026/10/11|['John Ndukwe']|100|medium|
 |Bat files observed in HTTP Traffic on Unusual Port |2026/10/11|['John Ndukwe']|50|medium|
 |new alert|2026/10/11|['John Ndukwe']|90|high|
