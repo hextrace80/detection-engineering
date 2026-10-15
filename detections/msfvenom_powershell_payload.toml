@@ -10,6 +10,7 @@ risk_score = 70
 severity = "high"
 type = "query"
 rule_id = "00000000-0000-0000-0000-000000000005"
+index = ["logs-windows.sysmon_operational-*"]
 query = '''
 process.command_line: "\"cmd.exe\"" and message : "*powershell -w hidden -nop -c $a='*" 
 '''

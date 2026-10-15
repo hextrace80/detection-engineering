@@ -113,7 +113,10 @@ def main():
     print("\nOne or more scheduled-task detection tests failed.")
     return 1  
 
-      
+    all_passed = check(
+        rule["index"] == expected_metadata["index"],
+        "Rule index pattern matches the expected value",
+    ) and all_passed
 
 
 if __name__ == "__main__":
