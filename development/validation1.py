@@ -30,13 +30,13 @@ for root, dirs, files in os.walk("detections/"):
 
 
                 if alert ['rule'] ['type'] == "query" :
-                    required_fields =[ 'description', 'name','rule_id', 'risk_score','severity', 'type', 'query'  ]
+                    required_fields =[ 'description', 'name','rule_id', 'risk_score','severity', 'type','from', 'query'  ]
 
                 elif  alert ['rule'] ['type'] == "eql" :
-                    required_fields =[ 'description', 'name','rule_id', 'risk_score','severity', 'type', 'query', 'language' ]
+                    required_fields =[ 'description', 'name','rule_id', 'risk_score','severity', 'type', 'from','query', 'language' ]
 
                 elif alert ['rule'] ['type'] == "threshold" :
-                    required_fields =[ 'description', 'name','rule_id', 'risk_score','severity', 'type', 'query' ,'threshold' ]
+                    required_fields =[ 'description', 'name','rule_id', 'risk_score','severity', 'type', 'from','query' ,'threshold' ]
 
                 else:
                     print("Unsupported rule type found in: " + full_path)

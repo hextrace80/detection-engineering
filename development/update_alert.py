@@ -26,13 +26,13 @@ for root, dirs, files in os.walk("detections/"):
                 alert = tomllib.load(toml)
 
                 if alert ['rule'] ['type'] == "query" :
-                     required_fields =[  'author','description', 'name','rule_id', 'risk_score','severity', 'type', 'query', 'threat'  ]
+                     required_fields =[  'author','description', 'name','rule_id', 'risk_score','severity', 'type', 'from','query', 'threat'  ]
                 
                 elif  alert ['rule'] ['type'] == "eql" :
-                    required_fields =[ 'author', 'description', 'name','rule_id', 'risk_score','severity', 'type', 'query', 'language', 'threat'  ]
+                    required_fields =[ 'author', 'description', 'name','rule_id', 'risk_score','severity', 'type','from', 'query', 'language', 'threat'  ]
                 
                 elif alert ['rule'] ['type'] == "threshold" :
-                    required_fields =[ 'author', 'description', 'name','rule_id', 'risk_score','severity', 'type', 'query' ,'threshold', 'threat'  ]
+                    required_fields =[ 'author', 'description', 'name','rule_id', 'risk_score','severity', 'type', 'from','query' ,'threshold', 'threat'  ]
                 
                 else:
                     print("Unsupported rule type found in: " + full_path)
