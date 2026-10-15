@@ -9,7 +9,7 @@ name = "Excessive Web Traffic"
 risk_score = 60
 severity = "low"
 type = "threshold"
-rule_id = "00000000-0000-0000-0000-000000000005"
+rule_id = "00000000-0000-0000-0000-000000000055"
 index = ["logs-windows.sysmon_operational-*"]
 
 query = '''
