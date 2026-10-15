@@ -1,0 +1,36 @@
+[metadata]
+creation_date = "2026/10/15"
+
+[rule]
+author = ["John Ndukwe"]
+name = "Scheduled Task Creation via Schtasks"
+description = "Detects schtasks.exe creating a scheduled task through Sysmon process-creation telemetry."
+risk_score = 47
+severity = "medium"
+type = "query"
+from = "now-6m"
+query = '''
+event.category: process and process.name: schtasks.exe and process.command_line: *Create* and event.dataset: "windows.sysmon_operational"
+'''
+rule_id= 'bb3dd945-09b1-45a9-ab73-88d5d3e64e99'
+
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+
+[[rule.threat.technique]]
+id = "T1053"
+name = "Scheduled Task/Job"
+reference = "https://attack.mitre.org/techniques/T1053/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1053.005"
+name = "Scheduled Task"
+reference = "https://attack.mitre.org/techniques/T1053/005/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"
+
