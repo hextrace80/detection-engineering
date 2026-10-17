@@ -1,0 +1,32 @@
+[metadata]
+creation_date = "2026/10/16"
+
+[rule]
+author = ["John Ndukwe"]
+name = "AWS IAM Access Key Created"
+description = "Detects AWS IAM access key creation using CloudTrail management events."
+risk_score = 47
+severity = "medium"
+type = "query"
+from = "now-10m"
+index = ["logs-aws.cloudtrail-*"]
+query = '''
+event.dataset: "aws.cloudtrail" and
+event.provider: "iam.amazonaws.com" and
+event.action: "CreateAccessKey"
+'''
+rule_id = "4a0fce7d-c4a7-4c69-89e5-902f1a3fe276"
+
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1098"
+name = "Account Manipulation"
+reference = "https://attack.mitre.org/techniques/T1098/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"
