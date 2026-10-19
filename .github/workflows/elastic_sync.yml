@@ -1,44 +1,62 @@
 
 
-name: Updating Detections
-
-# Controls when the workflow will run
+name: Validate and Update Detections
 
 on:
+  # Automatic deployment remains limited to detection TOML changes pushed to main.
   push:
     branches:
       - main
     paths:
-      - 'detections/**/*.toml'  
-# Allows you to run this workflow manually from the Actions tab
+      - 'detections/**/*.toml'
+
+  # Pull requests validate rule and test changes, but never deploy.
+  pull_request:
+    paths:
+      - 'detections/**/*.toml'
+      - 'tests/**'
+      - 'development/validation1.py'
+      - 'development/mitre.py'
+      - '.github/workflows/elastic_sync.yml'
+
+  # Manual runs validate only. The deploy job is restricted to push events on main.
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  elastic-detections-update:
-    # The type of runner that the job will run on
+  validate:
     runs-on: ubuntu-latest
-    env:
-      ELASTIC_KEY: ${{ secrets.ELASTIC_KEY}}
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+
+      - name: Install validation dependency
+        run: pip install requests
+
+      - name: Validate detection TOML metadata
+        run: python development/validation1.py
+
+      - name: Validate MITRE ATT&CK mappings
+        run: python development/mitre.py
+
+      - name: Run offline detection tests
+        run: python tests/run_detection_tests.py
+
+  deploy:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # OR "2" -> To retrieve the preceding commit.
-
-          # the object  steps.changed-files.outputs.all_changed_files
+          fetch-depth: 0
 
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
-     
-      - name: Run Update Script
-        env:
-            ELASTIC_KEY: ${{ secrets.ELASTIC_KEY}}
-            CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files}}
-        run: |
 
+      - name: Run update script
+        env:
+          ELASTIC_KEY: ${{ secrets.ELASTIC_KEY }}
+          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+        run: |
           pip install requests
-          python  development/update_alert.py
+          python development/update_alert.py
