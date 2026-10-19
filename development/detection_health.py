@@ -1,12 +1,22 @@
 """Read-only operational health reporting for Elastic Security detections."""
 
+import csv
+import io
 import os
 import sys
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import quote
 
 import requests
+
+
+# Elastic Health Monitor Configuration
+# Replace these placeholders with your actual endpoints.
+os.environ["ELASTIC_KIBANA_URL"] = "https://my-security-project-ed39ef.kb.us-east4.gcp.elastic.cloud"
+os.environ["ELASTICSEARCH_URL"] = "https://my-security-project-ed39ef.es.us-east4.gcp.elastic.cloud"
+os.environ["ELASTIC_SECURITY_SPACE"] = "default"
 
 
 RULES_PAGE_SIZE = 100
@@ -15,6 +25,9 @@ MAX_ALERT_BUCKET_PAGES = 10000
 DEFAULT_LOOKBACK = "now-30d"
 DEFAULT_STALE_AFTER_SECONDS = 900
 DEFAULT_STALE_INTERVAL_MULTIPLIER = 3
+REPORTS_DIRECTORY = Path(__file__).resolve().parents[1] / "reports"
+INVENTORY_REPORT_NAME = "detection_health_inventory.csv"
+SUMMARY_REPORT_NAME = "detection_health_summary.md"
 
 
 class HealthMonitorError(Exception):
@@ -244,17 +257,35 @@ def build_rows(rules, activity, alert_error, now, default_stale_after, interval_
     for rule in rules:
         rule_uuid = rule.get("id")
         rule_activity = activity.get(rule_uuid) if activity is not None else None
-        rows.append(
-            {
-                "name": rule.get("name", "<unnamed rule>"),
-                "rule_id": rule.get("rule_id", "<missing rule_id>"),
-                "status": classify_rule(rule, now, default_stale_after, interval_multiplier),
-                "execution": last_execution_for_rule(rule),
-                "alert_activity": rule_activity,
-                "alert_error": alert_error,
-            }
-        )
+        row = {
+            "name": rule.get("name", "<unnamed rule>"),
+            "rule_id": rule.get("rule_id", "<missing rule_id>"),
+            "uuid": rule_uuid,
+            "enabled": rule.get("enabled") is True,
+            "type": rule.get("type", "<unknown type>"),
+            "interval": rule.get("interval", "<unknown interval>"),
+            "status": classify_rule(rule, now, default_stale_after, interval_multiplier),
+            "execution": last_execution_for_rule(rule),
+            "alert_activity": rule_activity,
+            "alert_error": alert_error,
+        }
+        row["review_flags"] = review_flags(row)
+        rows.append(row)
     return rows
+
+
+def review_flags(row):
+    flags = []
+    if not row["enabled"]:
+        flags.append("DISABLED")
+    elif row["status"] != "HEALTHY":
+        flags.append(f"EXECUTION_{row['status']}")
+
+    if row["alert_error"]:
+        flags.append("ALERT_ACTIVITY_UNAVAILABLE")
+    elif row["enabled"] and row["alert_activity"] is None:
+        flags.append("ZERO_ALERTS_IN_LOOKBACK")
+    return flags
 
 
 def alert_text(row, lookback):
@@ -288,6 +319,245 @@ def print_report(rows, lookback, alert_error):
     print(f"Summary: {summary or 'no rules returned'}")
     if alert_error:
         print(f"WARNING: alert activity is unavailable: {alert_error}")
+
+
+def normalize_rule_name(name):
+    return " ".join(name.split()).casefold()
+
+
+def duplicate_name_candidates(rows):
+    candidates = {}
+    for row in rows:
+        normalized_name = normalize_rule_name(row["name"])
+        candidates.setdefault(normalized_name, []).append(row)
+    return [group for group in candidates.values() if len(group) > 1]
+
+
+def alert_fields(row):
+    if row["alert_error"]:
+        return "UNAVAILABLE", "UNAVAILABLE"
+    activity = row["alert_activity"]
+    if activity is None:
+        return 0, ""
+    return activity["count"], activity.get("last_alert") or ""
+
+
+def generation_timestamp(generated_at):
+    return generated_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def inventory_csv(rows, generated_at):
+    fieldnames = [
+        "Report generation timestamp",
+        "Rule name",
+        "Stable rule_id",
+        "Elastic internal UUID",
+        "Enabled state",
+        "Health classification",
+        "Rule type",
+        "Execution interval",
+        "Last execution time",
+        "Last execution status",
+        "Alert count for selected lookback",
+        "Most recent alert timestamp",
+        "Review flags",
+    ]
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    generated_text = generation_timestamp(generated_at)
+    for row in sorted(rows, key=lambda item: (item["name"].casefold(), item["uuid"])):
+        alert_count, last_alert = alert_fields(row)
+        execution = row["execution"]
+        writer.writerow(
+            {
+                "Report generation timestamp": generated_text,
+                "Rule name": row["name"],
+                "Stable rule_id": row["rule_id"],
+                "Elastic internal UUID": row["uuid"],
+                "Enabled state": "enabled" if row["enabled"] else "disabled",
+                "Health classification": row["status"],
+                "Rule type": row["type"],
+                "Execution interval": row["interval"],
+                "Last execution time": execution.get("date", ""),
+                "Last execution status": execution.get("status", ""),
+                "Alert count for selected lookback": alert_count,
+                "Most recent alert timestamp": last_alert,
+                "Review flags": "; ".join(row["review_flags"]),
+            }
+        )
+    return output.getvalue()
+
+
+def summary_metrics(rows):
+    status_counts = Counter(row["status"] for row in rows)
+    enabled_rows = [row for row in rows if row["enabled"]]
+    disabled_rows = [row for row in rows if not row["enabled"]]
+    healthy_enabled = sum(row["status"] == "HEALTHY" for row in enabled_rows)
+    alert_available = not any(row["alert_error"] for row in rows)
+    alerting_enabled = []
+    zero_alert_enabled = []
+    total_alerts = None
+    top_alerts = []
+    if alert_available:
+        alerting_enabled = [
+            row for row in enabled_rows if row["alert_activity"] is not None and row["alert_activity"]["count"] > 0
+        ]
+        zero_alert_enabled = [row for row in enabled_rows if row["alert_activity"] is None]
+        total_alerts = sum(activity["count"] for row in rows if (activity := row["alert_activity"]) is not None)
+        top_alerts = sorted(
+            (row for row in rows if row["alert_activity"] is not None),
+            key=lambda row: (-row["alert_activity"]["count"], row["name"].casefold(), row["uuid"]),
+        )[:5]
+
+    return {
+        "total": len(rows),
+        "enabled": len(enabled_rows),
+        "disabled": len(disabled_rows),
+        "healthy_enabled": healthy_enabled,
+        "status_counts": status_counts,
+        "alert_available": alert_available,
+        "alerting_enabled": alerting_enabled,
+        "zero_alert_enabled": zero_alert_enabled,
+        "total_alerts": total_alerts,
+        "top_alerts": top_alerts,
+        "duplicate_candidates": duplicate_name_candidates(rows),
+    }
+
+
+def markdown_summary(rows, lookback, generated_at):
+    metrics = summary_metrics(rows)
+    generated_text = generation_timestamp(generated_at)
+    lines = [
+        "# Detection Health & Metrics Audit Report",
+        "",
+        f"Generated: {generated_text}",
+        f"Alert lookback: `{lookback}`",
+        "",
+        "## Rule inventory",
+        "",
+        "| Metric | Count |",
+        "| --- | ---: |",
+        f"| Total deployed rules | {metrics['total']} |",
+        f"| Enabled | {metrics['enabled']} |",
+        f"| Disabled | {metrics['disabled']} |",
+    ]
+    for status in ("HEALTHY", "FAILED", "DEGRADED", "STALE", "UNKNOWN", "NOT_YET_EXECUTED"):
+        lines.append(f"| {status.replace('_', ' ').title()} | {metrics['status_counts'][status]} |")
+
+    denominator = metrics["enabled"]
+    rate = (metrics["healthy_enabled"] / denominator * 100) if denominator else 0
+    lines.extend(
+        [
+            "",
+            "## Operational health",
+            "",
+            f"Operational health rate: **{rate:.1f}%** ({metrics['healthy_enabled']} HEALTHY enabled rules / {denominator} enabled rules).",
+            "Disabled rules are excluded from this rate.",
+            "",
+            "## Alert activity",
+            "",
+        ]
+    )
+    if metrics["alert_available"]:
+        alerting_count = len(metrics["alerting_enabled"])
+        alert_rate = (alerting_count / denominator * 100) if denominator else 0
+        lines.extend(
+            [
+                f"Enabled rules with one or more recorded alerts: **{alerting_count} of {denominator} ({alert_rate:.1f}%)**.",
+                f"Total alerts in selected lookback: **{metrics['total_alerts']}**.",
+                "",
+                "### Top five rules by alert volume",
+                "",
+                "| Rule name | Elastic internal UUID | Alerts | Most recent alert |",
+                "| --- | --- | ---: | --- |",
+            ]
+        )
+        if metrics["top_alerts"]:
+            for row in metrics["top_alerts"]:
+                activity = row["alert_activity"]
+                lines.append(f"| {row['name']} | `{row['uuid']}` | {activity['count']} | {activity.get('last_alert') or ''} |")
+        else:
+            lines.append("| No alert activity in the selected lookback |  | 0 |  |")
+
+        lines.extend(["", "### Enabled rules with zero alerts in the selected lookback", ""])
+        if metrics["zero_alert_enabled"]:
+            for row in sorted(metrics["zero_alert_enabled"], key=lambda item: (item["name"].casefold(), item["uuid"])):
+                lines.append(f"- {row['name']} (`{row['uuid']}`)")
+        else:
+            lines.append("- None")
+    else:
+        lines.append("Alert activity: **UNAVAILABLE**. Alert counts and zero-alert analysis were not calculated.")
+
+    lines.extend(["", "## Potential duplicate rules by name", ""])
+    if metrics["duplicate_candidates"]:
+        for group in metrics["duplicate_candidates"]:
+            lines.append(f"- Candidate: **{group[0]['name']}**")
+            for row in sorted(group, key=lambda item: item["uuid"]):
+                lines.append(f"  - `{row['uuid']}` — stable rule_id: `{row['rule_id']}`")
+    else:
+        lines.append("- No duplicate-name candidates found.")
+    lines.append("These are candidates for investigation, not confirmed duplicates.")
+
+    lines.extend(["", "## Findings and recommended follow-up actions", ""])
+    attention = [row for row in rows if row["review_flags"]]
+    if attention:
+        for row in sorted(attention, key=lambda item: (item["name"].casefold(), item["uuid"])):
+            lines.append(f"- Review {row['name']} (`{row['uuid']}`): {', '.join(row['review_flags'])}.")
+    else:
+        lines.append("- No execution-health, disabled-state, or alert-availability review flags were identified.")
+    lines.extend(
+        [
+            "- Investigate FAILED, DEGRADED, STALE, or UNKNOWN execution states before relying on the affected detection.",
+            "- Review disabled rules to confirm they are intentionally inactive.",
+            "- Treat zero alerts in the selected lookback as a review prompt for telemetry coverage, rule scope, and expected activity—not proof of a bad rule.",
+            "",
+            "## Methodology and limitations",
+            "",
+            "This report lists deployed Elastic Security rules from Kibana and aggregates alert documents by Elastic internal rule UUID over the selected lookback.",
+            "A successful execution means the rule most recently ran successfully; it does not prove that the rule searched complete telemetry, matched intended behavior, or detected every relevant event.",
+            "Recorded alert activity reflects alerts retained and returned for the selected lookback. Zero alerts do not establish that a rule has never alerted or that it is ineffective.",
+            "Potential duplicate names are normalized for comparison and remain investigation candidates because distinct rules can intentionally share a name.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def write_audit_reports(rows, lookback, generated_at, reports_directory=REPORTS_DIRECTORY):
+    if any(row["alert_error"] for row in rows):
+        raise HealthMonitorError("Audit reports were not written because alert activity is unavailable")
+
+    contents = {
+        INVENTORY_REPORT_NAME: inventory_csv(rows, generated_at),
+        SUMMARY_REPORT_NAME: markdown_summary(rows, lookback, generated_at),
+    }
+    reports_directory.mkdir(parents=True, exist_ok=True)
+    targets = {name: reports_directory / name for name in contents}
+    originals = {target: target.read_bytes() if target.exists() else None for target in targets.values()}
+    temporary_paths = {}
+    replaced = []
+    try:
+        for name, content in contents.items():
+            target = targets[name]
+            temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+            temporary.write_text(content, encoding="utf-8", newline="")
+            temporary_paths[target] = temporary
+        for target in targets.values():
+            os.replace(temporary_paths[target], target)
+            replaced.append(target)
+    except OSError as error:
+        for target in replaced:
+            original = originals[target]
+            if original is None:
+                target.unlink(missing_ok=True)
+            else:
+                target.write_bytes(original)
+        raise HealthMonitorError(f"Audit reports could not be written safely: {error}") from error
+    finally:
+        for temporary in temporary_paths.values():
+            temporary.unlink(missing_ok=True)
+
+    return targets[INVENTORY_REPORT_NAME], targets[SUMMARY_REPORT_NAME]
 
 
 def required_environment():
@@ -340,16 +610,26 @@ def main():
     except HealthMonitorError as error:
         alert_error = str(error)
 
+    generated_at = datetime.now(timezone.utc)
     rows = build_rows(
         rules,
         alert_activity,
         alert_error,
-        datetime.now(timezone.utc),
+        generated_at,
         config["stale_after"],
         config["interval_multiplier"],
     )
     print_report(rows, config["lookback"], alert_error)
-    return 1 if alert_error else 0
+    if alert_error:
+        return 1
+
+    try:
+        inventory_path, summary_path = write_audit_reports(rows, config["lookback"], generated_at)
+    except HealthMonitorError as error:
+        print(f"ERROR: {error}")
+        return 1
+    print(f"Audit reports written: {inventory_path}, {summary_path}")
+    return 0
 
 
 if __name__ == "__main__":

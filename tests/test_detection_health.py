@@ -1,6 +1,9 @@
 """Mocked tests for the read-only Elastic detection health monitor."""
 
+import csv
 import importlib.util
+import io
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -145,6 +148,97 @@ class DetectionHealthTests(unittest.TestCase):
 
         rows = detection_health.build_rows([rule()], None, "HTTP 500", NOW, 900, 3)
         self.assertEqual(detection_health.alert_text(rows[0], "now-30d"), "UNAVAILABLE")
+
+    def test_inventory_csv_preserves_full_names_and_uses_snapshot_timestamp(self):
+        full_name = "A long rule name that must not be truncated in the CSV inventory"
+        document = rule()
+        document.update({"name": full_name, "type": "query", "interval": "5m"})
+        rows = detection_health.build_rows(
+            [document],
+            {"rule-uuid": {"count": 3, "last_alert": "2026-10-18T11:00:00Z"}},
+            None,
+            NOW,
+            900,
+            3,
+        )
+
+        content = detection_health.inventory_csv(rows, NOW)
+        record = next(csv.DictReader(io.StringIO(content)))
+
+        self.assertEqual(record["Report generation timestamp"], "2026-10-18T12:00:00Z")
+        self.assertEqual(record["Rule name"], full_name)
+        self.assertEqual(record["Elastic internal UUID"], "rule-uuid")
+        self.assertEqual(record["Alert count for selected lookback"], "3")
+        self.assertEqual(record["Most recent alert timestamp"], "2026-10-18T11:00:00Z")
+
+    def test_markdown_summary_calculates_metrics_and_duplicate_candidates(self):
+        healthy = rule()
+        healthy.update({"name": "Repeated   Name", "type": "query"})
+        failed = rule(execution_status="failed")
+        failed.update({"id": "rule-uuid-2", "rule_id": "stable-rule-id-2", "name": "repeated name", "type": "query"})
+        disabled = rule(enabled=False)
+        disabled.update({"id": "rule-uuid-3", "rule_id": "stable-rule-id-3", "name": "Disabled rule", "type": "query"})
+        rows = detection_health.build_rows(
+            [healthy, failed, disabled],
+            {"rule-uuid": {"count": 4, "last_alert": "2026-10-18T11:00:00Z"}},
+            None,
+            NOW,
+            900,
+            3,
+        )
+
+        summary = detection_health.markdown_summary(rows, "now-30d", NOW)
+
+        self.assertIn("Generated: 2026-10-18T12:00:00Z", summary)
+        self.assertIn("| Total deployed rules | 3 |", summary)
+        self.assertIn("| Enabled | 2 |", summary)
+        self.assertIn("| Disabled | 1 |", summary)
+        self.assertIn("| Healthy | 1 |", summary)
+        self.assertIn("| Failed | 1 |", summary)
+        self.assertIn("Operational health rate: **50.0%** (1 HEALTHY enabled rules / 2 enabled rules).", summary)
+        self.assertIn("Enabled rules with one or more recorded alerts: **1 of 2 (50.0%)**.", summary)
+        self.assertIn("Total alerts in selected lookback: **4**.", summary)
+        self.assertIn("Candidate: **Repeated   Name**", summary)
+        self.assertIn("`rule-uuid`", summary)
+        self.assertIn("`rule-uuid-2`", summary)
+
+    def test_missing_alert_data_does_not_overwrite_existing_reports(self):
+        rows = detection_health.build_rows([rule()], None, "HTTP 500", NOW, 900, 3)
+        self.assertEqual(detection_health.alert_fields(rows[0]), ("UNAVAILABLE", "UNAVAILABLE"))
+        self.assertIn("Alert activity: **UNAVAILABLE**", detection_health.markdown_summary(rows, "now-30d", NOW))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            reports_directory = Path(temporary_directory)
+            inventory = reports_directory / detection_health.INVENTORY_REPORT_NAME
+            summary = reports_directory / detection_health.SUMMARY_REPORT_NAME
+            inventory.write_text("complete inventory", encoding="utf-8")
+            summary.write_text("complete summary", encoding="utf-8")
+
+            with self.assertRaisesRegex(detection_health.HealthMonitorError, "not written"):
+                detection_health.write_audit_reports(rows, "now-30d", NOW, reports_directory)
+
+            self.assertEqual(inventory.read_text(encoding="utf-8"), "complete inventory")
+            self.assertEqual(summary.read_text(encoding="utf-8"), "complete summary")
+
+    def test_audit_reports_write_csv_and_markdown_from_one_snapshot(self):
+        document = rule()
+        document.update({"name": "Audit rule", "type": "query"})
+        rows = detection_health.build_rows(
+            [document],
+            {"rule-uuid": {"count": 2, "last_alert": "2026-10-18T11:00:00Z"}},
+            None,
+            NOW,
+            900,
+            3,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            inventory, summary = detection_health.write_audit_reports(rows, "now-30d", NOW, Path(temporary_directory))
+            inventory_record = next(csv.DictReader(io.StringIO(inventory.read_text(encoding="utf-8"))))
+            summary_text = summary.read_text(encoding="utf-8")
+
+        self.assertEqual(inventory_record["Report generation timestamp"], "2026-10-18T12:00:00Z")
+        self.assertEqual(inventory_record["Alert count for selected lookback"], "2")
+        self.assertIn("Generated: 2026-10-18T12:00:00Z", summary_text)
+        self.assertIn("Total alerts in selected lookback: **2**.", summary_text)
 
 
 if __name__ == "__main__":
