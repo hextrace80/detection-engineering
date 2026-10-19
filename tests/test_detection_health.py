@@ -74,6 +74,16 @@ class DetectionHealthTests(unittest.TestCase):
     def test_rule_without_execution_data_is_not_yet_executed(self):
         self.assertEqual(self.classify(rule(execution_status=None)), "NOT_YET_EXECUTED")
 
+    def test_non_dictionary_execution_summaries_are_safe(self):
+        for execution_summary in (None, [], "not an object"):
+            with self.subTest(execution_summary=execution_summary):
+                document = rule()
+                document["execution_summary"] = execution_summary
+                self.assertEqual(self.classify(document), "NOT_YET_EXECUTED")
+
+                rows = detection_health.build_rows([document], {}, None, NOW, 900, 3)
+                self.assertEqual(rows[0]["execution"], {})
+
     def test_unrecognized_execution_status_is_unknown(self):
         self.assertEqual(self.classify(rule(execution_status="running")), "UNKNOWN")
 
@@ -89,16 +99,24 @@ class DetectionHealthTests(unittest.TestCase):
         self.assertEqual(len(rules), 2)
         self.assertEqual([call[1]["params"]["page"] for call in session.get_calls], [1, 2])
 
+    def test_rule_without_usable_id_is_rejected_before_alert_correlation(self):
+        invalid_rule = rule()
+        invalid_rule["id"] = None
+        session = FakeSession(get_responses=[FakeResponse(200, {"data": [invalid_rule], "total": 1})])
+
+        with self.assertRaisesRegex(detection_health.HealthMonitorError, "no usable id"):
+            detection_health.get_rules(session, "https://kb.example", "default", {})
+
     def test_alert_composite_pagination_collects_all_buckets(self):
         session = FakeSession(
             post_responses=[
                 FakeResponse(
                     200,
-                    {"aggregations": {"rules": {"buckets": [{"key": {"rule_uuid": "rule-uuid"}, "doc_count": 2, "last_alert": {"value_as_string": "2026-10-18T11:00:00Z"}}], "after_key": {"rule_uuid": "rule-uuid"}}}},
+                    {"timed_out": False, "_shards": {"failed": 0}, "aggregations": {"rules": {"buckets": [{"key": {"rule_uuid": "rule-uuid"}, "doc_count": 2, "last_alert": {"value_as_string": "2026-10-18T11:00:00Z"}}], "after_key": {"rule_uuid": "rule-uuid"}}}},
                 ),
                 FakeResponse(
                     200,
-                    {"aggregations": {"rules": {"buckets": [{"key": {"rule_uuid": "rule-uuid-2"}, "doc_count": 1, "last_alert": {"value_as_string": "2026-10-18T10:00:00Z"}}]}}},
+                    {"timed_out": False, "_shards": {"failed": 0}, "aggregations": {"rules": {"buckets": [{"key": {"rule_uuid": "rule-uuid-2"}, "doc_count": 1, "last_alert": {"value_as_string": "2026-10-18T10:00:00Z"}}]}}},
                 ),
             ]
         )
@@ -107,6 +125,18 @@ class DetectionHealthTests(unittest.TestCase):
         self.assertEqual(set(activity), {"rule-uuid", "rule-uuid-2"})
         self.assertEqual(len(session.post_calls), 2)
         self.assertEqual(session.post_calls[1][1]["json"]["aggs"]["rules"]["composite"]["after"], {"rule_uuid": "rule-uuid"})
+
+    def test_timed_out_alert_search_is_unavailable(self):
+        session = FakeSession(post_responses=[FakeResponse(200, {"timed_out": True})])
+
+        with self.assertRaisesRegex(detection_health.HealthMonitorError, "search timed out"):
+            detection_health.get_alert_activity(session, "https://es.example", "default", {}, "now-30d")
+
+    def test_shard_failed_alert_search_is_unavailable(self):
+        session = FakeSession(post_responses=[FakeResponse(200, {"timed_out": False, "_shards": {"failed": 1}})])
+
+        with self.assertRaisesRegex(detection_health.HealthMonitorError, "shard failures"):
+            detection_health.get_alert_activity(session, "https://es.example", "default", {}, "now-30d")
 
     def test_alert_api_failure_is_reported_as_unavailable_not_zero(self):
         session = FakeSession(post_responses=[FakeResponse(500, text="server error")])

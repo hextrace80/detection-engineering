@@ -86,6 +86,13 @@ def get_rules(session, kibana_url, space, headers):
         if total > len(rules) and not page_rules:
             raise HealthMonitorError("List rules ended before all expected rules were returned")
 
+        for position, rule in enumerate(page_rules, start=len(rules) + 1):
+            if not isinstance(rule, dict):
+                raise HealthMonitorError(f"List rules page {page}: rule {position} is not an object")
+            rule_uuid = rule.get("id")
+            if not isinstance(rule_uuid, str) or not rule_uuid.strip():
+                raise HealthMonitorError(f"List rules page {page}: rule {position} has no usable id")
+
         rules.extend(page_rules)
         page += 1
 
@@ -139,6 +146,19 @@ def get_alert_activity(session, elasticsearch_url, space, headers, lookback):
             )
 
         document = response_json(response, f"Alert aggregation page {page_count}")
+        timed_out = document.get("timed_out")
+        if timed_out is True:
+            raise HealthMonitorError(f"Alert aggregation page {page_count}: search timed out")
+        if timed_out is not None and not isinstance(timed_out, bool):
+            raise HealthMonitorError(f"Alert aggregation page {page_count}: invalid timed_out value")
+
+        shards = document.get("_shards")
+        if shards is not None:
+            if not isinstance(shards, dict) or not isinstance(shards.get("failed", 0), int):
+                raise HealthMonitorError(f"Alert aggregation page {page_count}: invalid shard metadata")
+            if shards["failed"] > 0:
+                raise HealthMonitorError(f"Alert aggregation page {page_count}: shard failures reported")
+
         aggregation = document.get("aggregations", {}).get("rules")
         if not isinstance(aggregation, dict) or not isinstance(aggregation.get("buckets"), list):
             raise HealthMonitorError(f"Alert aggregation page {page_count}: missing buckets")
@@ -177,12 +197,22 @@ def parse_interval_seconds(value):
     return int(value[:-1]) * multiplier
 
 
+def last_execution_for_rule(rule):
+    """Return a safe execution object when Kibana omits or malforms its summary."""
+    execution_summary = rule.get("execution_summary")
+    if not isinstance(execution_summary, dict):
+        return {}
+
+    last_execution = execution_summary.get("last_execution")
+    return last_execution if isinstance(last_execution, dict) else {}
+
+
 def classify_rule(rule, now, default_stale_after, interval_multiplier):
     if rule.get("enabled") is False:
         return "DISABLED"
 
-    last_execution = rule.get("execution_summary", {}).get("last_execution")
-    if not isinstance(last_execution, dict):
+    last_execution = last_execution_for_rule(rule)
+    if not last_execution:
         return "NOT_YET_EXECUTED"
 
     execution_status = last_execution.get("status")
@@ -219,7 +249,7 @@ def build_rows(rules, activity, alert_error, now, default_stale_after, interval_
                 "name": rule.get("name", "<unnamed rule>"),
                 "rule_id": rule.get("rule_id", "<missing rule_id>"),
                 "status": classify_rule(rule, now, default_stale_after, interval_multiplier),
-                "execution": rule.get("execution_summary", {}).get("last_execution", {}),
+                "execution": last_execution_for_rule(rule),
                 "alert_activity": rule_activity,
                 "alert_error": alert_error,
             }
