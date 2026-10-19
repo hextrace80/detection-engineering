@@ -1,0 +1,13 @@
+
+{
+  "test_cases": [
+    {
+      "fixture": "positive_access_key_created.json",
+      "expected_match": true
+    },
+    {
+      "fixture": "negative_access_key_deleted.json",
+      "expected_match": false
+    }
+  ]
+}
