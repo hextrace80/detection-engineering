@@ -40,6 +40,9 @@ jobs:
       - name: Run offline detection tests
         run: python tests/run_detection_tests.py
 
+      - name: Run mocked deployment adapter tests
+        run: python tests/test_update_alert.py
+
   deploy:
     needs: validate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
