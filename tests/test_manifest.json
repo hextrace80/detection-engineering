@@ -1,0 +1,59 @@
+{
+  "detections": [
+    {
+      "name": "Scheduled Task Creation via Schtasks",
+      "rule_file": "detections/scheduled_task_creation_via_schtasks.toml",
+      "fixture_directory": "tests/fixtures/scheduled_task_creation_via_schtasks",
+      "matcher": "scheduled_task_creation",
+      "expected_rule_metadata": {
+        "severity": "medium",
+        "risk_score": 47,
+        "index": ["logs-windows.sysmon_operational-*"],
+        "mitre_id": "T1053.005"
+      },
+      "expected_query_fragments": [
+        "event.category: process",
+        "process.name: schtasks.exe",
+        "process.command_line: *Create*",
+        "event.dataset: \"windows.sysmon_operational\""
+      ],
+      "test_cases": [
+        {
+          "fixture": "positive_process_creation.json",
+          "expected_match": true
+        },
+        {
+          "fixture": "negative_process_creation.json",
+          "expected_match": false
+        }
+      ]
+    },
+    {
+      "name": "AWS IAM Access Key Created",
+      "rule_file": "detections/aws_iam_access_key_created.toml",
+      "fixture_directory": "tests/fixtures/aws_iam_access_key_created",
+      "matcher": "aws_iam_access_key_created",
+      "expected_rule_metadata": {
+        "severity": "medium",
+        "risk_score": 47,
+        "index": ["logs-aws.cloudtrail-*"],
+        "mitre_id": "T1098"
+      },
+      "expected_query_fragments": [
+        "event.dataset: \"aws.cloudtrail\"",
+        "event.provider: \"iam.amazonaws.com\"",
+        "event.action: \"CreateAccessKey\""
+      ],
+      "test_cases": [
+        {
+          "fixture": "positive_access_key_created.json",
+          "expected_match": true
+        },
+        {
+          "fixture": "negative_access_key_deleted.json",
+          "expected_match": false
+        }
+      ]
+    }
+  ]
+}

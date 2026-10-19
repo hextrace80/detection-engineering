@@ -1,0 +1,8 @@
+
+{
+  "event": {
+    "dataset": "aws.cloudtrail",
+    "provider": "iam.amazonaws.com",
+    "action": "DeleteAccessKey"
+  }
+}

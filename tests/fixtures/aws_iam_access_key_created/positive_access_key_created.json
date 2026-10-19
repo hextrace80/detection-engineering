@@ -1,0 +1,13 @@
+
+{
+  "event": {
+    "dataset": "aws.cloudtrail",
+    "provider": "iam.amazonaws.com",
+    "action": "CreateAccessKey"
+  },
+  "aws": {
+    "cloudtrail": {
+      "event_source": "iam.amazonaws.com"
+    }
+  }
+}
