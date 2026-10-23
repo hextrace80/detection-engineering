@@ -1,0 +1,651 @@
+{
+  "took": 2,
+  "timed_out": false,
+  "_shards": {
+    "total": 1,
+    "successful": 1,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 6,
+      "relation": "eq"
+    },
+    "max_score": 0,
+    "hits": [
+      {
+        "_index": ".ds-logs-auditd.log-default-2026.10.20-000001",
+        "_id": "AaFW_0gKyge4__uNfbsa",
+        "_score": 0,
+        "_source": {
+          "@timestamp": "2026-10-20T01:48:59.544Z",
+          "agent": {
+            "ephemeral_id": "66c2622c-aa65-44ab-8494-c29e0cdf8acf",
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "name": "zeek",
+            "type": "filebeat",
+            "version": "9.5.5"
+          },
+          "auditd": {
+            "log": {
+              "ARCH": "x86_64",
+              "AUID": "zeek",
+              "EGID": "zeek",
+              "EUID": "zeek",
+              "FSGID": "zeek",
+              "FSUID": "zeek",
+              "GID": "zeek",
+              "SGID": "zeek",
+              "SUID": "zeek",
+              "SYSCALL": "execve",
+              "UID": "zeek",
+              "a0": "60197e3ae440",
+              "a1": "60197e3b5060",
+              "a2": "60197e384a90",
+              "a3": "31",
+              "items": "2",
+              "key": "process_execution",
+              "record_type": "SYSCALL",
+              "sequence": 398,
+              "ses": "3",
+              "subj": "unconfined",
+              "success": true,
+              "syscall": "59",
+              "tty": "pts1"
+            }
+          },
+          "data_stream": {
+            "dataset": "auditd.log",
+            "namespace": "default",
+            "type": "logs"
+          },
+          "ecs": {
+            "version": "8.17.0"
+          },
+          "elastic_agent": {
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "snapshot": false,
+            "version": "9.5.5"
+          },
+          "event": {
+            "action": "syscall",
+            "agent_id_status": "verified",
+            "category": [
+              "process"
+            ],
+            "dataset": "auditd.log",
+            "ingested": "2026-10-20T01:49:10Z",
+            "kind": "event",
+            "type": [
+              "info"
+            ]
+          },
+          "host": {
+            "architecture": "x86_64",
+            "containerized": false,
+            "hostname": "zeek",
+            "id": "5b049916a43446e7a7413d711f19a0bb",
+            "ip": [
+              "10.0.2.15",
+              "fd17:625c:f037:2:a00:27ff:fee0:8ab4",
+              "fe80::a00:27ff:fee0:8ab4",
+              "192.168.56.30"
+            ],
+            "mac": [
+              "08-00-27-A8-53-FD",
+              "08-00-27-E0-8A-B4"
+            ],
+            "name": "zeek",
+            "os": {
+              "codename": "resolute",
+              "family": "debian",
+              "kernel": "7.0.0-38-generic",
+              "name": "Ubuntu",
+              "platform": "ubuntu",
+              "type": "linux",
+              "version": "26.04.1 LTS (Resolute Raccoon)"
+            }
+          },
+          "input": {
+            "type": "log"
+          },
+          "log": {
+            "file": {
+              "path": "/var/log/audit/audit.log"
+            },
+            "offset": 90295
+          },
+          "process": {
+            "executable": "/usr/lib/cargo/bin/coreutils/echo",
+            "exit_code": 0,
+            "name": "echo",
+            "parent": {
+              "pid": 5493
+            },
+            "pid": 7141
+          },
+          "related": {
+            "user": [
+              "zeek"
+            ]
+          },
+          "tags": [
+            "auditd-log"
+          ],
+          "user": {
+            "audit": {
+              "id": "1000",
+              "name": "zeek"
+            },
+            "effective": {
+              "group": {
+                "id": "1000",
+                "name": "zeek"
+              },
+              "id": "1000",
+              "name": "zeek"
+            },
+            "filesystem": {
+              "group": {
+                "id": "1000",
+                "name": "zeek"
+              },
+              "id": "1000",
+              "name": "zeek"
+            },
+            "group": {
+              "id": "1000",
+              "name": "zeek"
+            },
+            "id": "1000",
+            "name": "zeek",
+            "saved": {
+              "group": {
+                "id": "1000",
+                "name": "zeek"
+              },
+              "id": "1000",
+              "name": "zeek"
+            }
+          }
+        }
+      },
+      {
+        "_index": ".ds-logs-auditd.log-default-2026.10.20-000001",
+        "_id": "AaFW_0gKyge4__uNfbsb",
+        "_score": 0,
+        "_source": {
+          "@timestamp": "2026-10-20T01:48:59.544Z",
+          "agent": {
+            "ephemeral_id": "66c2622c-aa65-44ab-8494-c29e0cdf8acf",
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "name": "zeek",
+            "type": "filebeat",
+            "version": "9.5.5"
+          },
+          "auditd": {
+            "log": {
+              "record_type": "EXECVE",
+              "sequence": 398
+            }
+          },
+          "auditd_normalization": {
+            "decoded_args": [
+              "/bin/echo",
+              "auditd normalization test"
+            ],
+            "original_args": [
+              "/bin/echo",
+              "617564697464206E6F726D616C697A6174696F6E2074657374"
+            ]
+          },
+          "data_stream": {
+            "dataset": "auditd.log",
+            "namespace": "default",
+            "type": "logs"
+          },
+          "ecs": {
+            "version": "8.17.0"
+          },
+          "elastic_agent": {
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "snapshot": false,
+            "version": "9.5.5"
+          },
+          "event": {
+            "action": "execve",
+            "agent_id_status": "verified",
+            "dataset": "auditd.log",
+            "ingested": "2026-10-20T01:49:10Z",
+            "kind": "event"
+          },
+          "host": {
+            "architecture": "x86_64",
+            "containerized": false,
+            "hostname": "zeek",
+            "id": "5b049916a43446e7a7413d711f19a0bb",
+            "ip": [
+              "10.0.2.15",
+              "fd17:625c:f037:2:a00:27ff:fee0:8ab4",
+              "fe80::a00:27ff:fee0:8ab4",
+              "192.168.56.30"
+            ],
+            "mac": [
+              "08-00-27-A8-53-FD",
+              "08-00-27-E0-8A-B4"
+            ],
+            "name": "zeek",
+            "os": {
+              "codename": "resolute",
+              "family": "debian",
+              "kernel": "7.0.0-38-generic",
+              "name": "Ubuntu",
+              "platform": "ubuntu",
+              "type": "linux",
+              "version": "26.04.1 LTS (Resolute Raccoon)"
+            }
+          },
+          "input": {
+            "type": "log"
+          },
+          "log": {
+            "file": {
+              "path": "/var/log/audit/audit.log"
+            },
+            "offset": 90796
+          },
+          "process": {
+            "args": [
+              "/bin/echo",
+              "617564697464206E6F726D616C697A6174696F6E2074657374"
+            ],
+            "args_count": 2,
+            "executable": "/bin/echo"
+          },
+          "tags": [
+            "auditd-log"
+          ]
+        }
+      },
+      {
+        "_index": ".ds-logs-auditd.log-default-2026.10.20-000001",
+        "_id": "AaFW_0gKyge4__uNfbsc",
+        "_score": 0,
+        "_source": {
+          "@timestamp": "2026-10-20T01:48:59.544Z",
+          "agent": {
+            "ephemeral_id": "66c2622c-aa65-44ab-8494-c29e0cdf8acf",
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "name": "zeek",
+            "type": "filebeat",
+            "version": "9.5.5"
+          },
+          "auditd": {
+            "log": {
+              "record_type": "CWD",
+              "sequence": 398
+            }
+          },
+          "data_stream": {
+            "dataset": "auditd.log",
+            "namespace": "default",
+            "type": "logs"
+          },
+          "ecs": {
+            "version": "8.17.0"
+          },
+          "elastic_agent": {
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "snapshot": false,
+            "version": "9.5.5"
+          },
+          "event": {
+            "action": "cwd",
+            "agent_id_status": "verified",
+            "dataset": "auditd.log",
+            "ingested": "2026-10-20T01:49:10Z",
+            "kind": "event"
+          },
+          "host": {
+            "architecture": "x86_64",
+            "containerized": false,
+            "hostname": "zeek",
+            "id": "5b049916a43446e7a7413d711f19a0bb",
+            "ip": [
+              "10.0.2.15",
+              "fd17:625c:f037:2:a00:27ff:fee0:8ab4",
+              "fe80::a00:27ff:fee0:8ab4",
+              "192.168.56.30"
+            ],
+            "mac": [
+              "08-00-27-A8-53-FD",
+              "08-00-27-E0-8A-B4"
+            ],
+            "name": "zeek",
+            "os": {
+              "codename": "resolute",
+              "family": "debian",
+              "kernel": "7.0.0-38-generic",
+              "name": "Ubuntu",
+              "platform": "ubuntu",
+              "type": "linux",
+              "version": "26.04.1 LTS (Resolute Raccoon)"
+            }
+          },
+          "input": {
+            "type": "log"
+          },
+          "log": {
+            "file": {
+              "path": "/var/log/audit/audit.log"
+            },
+            "offset": 90915
+          },
+          "process": {
+            "working_directory": "/home/zeek"
+          },
+          "tags": [
+            "auditd-log"
+          ]
+        }
+      },
+      {
+        "_index": ".ds-logs-auditd.log-default-2026.10.20-000001",
+        "_id": "AaFW_0gKyge4__uNfbsd",
+        "_score": 0,
+        "_source": {
+          "@timestamp": "2026-10-20T01:48:59.544Z",
+          "agent": {
+            "ephemeral_id": "66c2622c-aa65-44ab-8494-c29e0cdf8acf",
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "name": "zeek",
+            "type": "filebeat",
+            "version": "9.5.5"
+          },
+          "auditd": {
+            "log": {
+              "OGID": "root",
+              "OUID": "root",
+              "cap_fe": "0",
+              "cap_fi": "0",
+              "cap_fp": "0",
+              "cap_frootid": "0",
+              "cap_fver": "0",
+              "dev": "08:02",
+              "inode": "1311216",
+              "item": "0",
+              "mode": "0100755",
+              "name": "/bin/echo",
+              "nametype": "NORMAL",
+              "rdev": "00:00",
+              "record_type": "PATH",
+              "sequence": 398
+            }
+          },
+          "data_stream": {
+            "dataset": "auditd.log",
+            "namespace": "default",
+            "type": "logs"
+          },
+          "ecs": {
+            "version": "8.17.0"
+          },
+          "elastic_agent": {
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "snapshot": false,
+            "version": "9.5.5"
+          },
+          "event": {
+            "action": "path",
+            "agent_id_status": "verified",
+            "dataset": "auditd.log",
+            "ingested": "2026-10-20T01:49:10Z",
+            "kind": "event"
+          },
+          "host": {
+            "architecture": "x86_64",
+            "containerized": false,
+            "hostname": "zeek",
+            "id": "5b049916a43446e7a7413d711f19a0bb",
+            "ip": [
+              "10.0.2.15",
+              "fd17:625c:f037:2:a00:27ff:fee0:8ab4",
+              "fe80::a00:27ff:fee0:8ab4",
+              "192.168.56.30"
+            ],
+            "mac": [
+              "08-00-27-A8-53-FD",
+              "08-00-27-E0-8A-B4"
+            ],
+            "name": "zeek",
+            "os": {
+              "codename": "resolute",
+              "family": "debian",
+              "kernel": "7.0.0-38-generic",
+              "name": "Ubuntu",
+              "platform": "ubuntu",
+              "type": "linux",
+              "version": "26.04.1 LTS (Resolute Raccoon)"
+            }
+          },
+          "input": {
+            "type": "log"
+          },
+          "log": {
+            "file": {
+              "path": "/var/log/audit/audit.log"
+            },
+            "offset": 90972
+          },
+          "related": {
+            "user": [
+              "root"
+            ]
+          },
+          "tags": [
+            "auditd-log"
+          ],
+          "user": {
+            "owner": {
+              "group": {
+                "id": "0",
+                "name": "root"
+              },
+              "id": "0",
+              "name": "root"
+            }
+          }
+        }
+      },
+      {
+        "_index": ".ds-logs-auditd.log-default-2026.10.20-000001",
+        "_id": "AaFW_0gKyge4__uNfbse",
+        "_score": 0,
+        "_source": {
+          "@timestamp": "2026-10-20T01:48:59.544Z",
+          "agent": {
+            "ephemeral_id": "66c2622c-aa65-44ab-8494-c29e0cdf8acf",
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "name": "zeek",
+            "type": "filebeat",
+            "version": "9.5.5"
+          },
+          "auditd": {
+            "log": {
+              "OGID": "root",
+              "OUID": "root",
+              "cap_fe": "0",
+              "cap_fi": "0",
+              "cap_fp": "0",
+              "cap_frootid": "0",
+              "cap_fver": "0",
+              "dev": "08:02",
+              "inode": "1312252",
+              "item": "1",
+              "mode": "0100755",
+              "name": "/lib64/ld-linux-x86-64.so.2",
+              "nametype": "NORMAL",
+              "rdev": "00:00",
+              "record_type": "PATH",
+              "sequence": 398
+            }
+          },
+          "data_stream": {
+            "dataset": "auditd.log",
+            "namespace": "default",
+            "type": "logs"
+          },
+          "ecs": {
+            "version": "8.17.0"
+          },
+          "elastic_agent": {
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "snapshot": false,
+            "version": "9.5.5"
+          },
+          "event": {
+            "action": "path",
+            "agent_id_status": "verified",
+            "dataset": "auditd.log",
+            "ingested": "2026-10-20T01:49:10Z",
+            "kind": "event"
+          },
+          "host": {
+            "architecture": "x86_64",
+            "containerized": false,
+            "hostname": "zeek",
+            "id": "5b049916a43446e7a7413d711f19a0bb",
+            "ip": [
+              "10.0.2.15",
+              "fd17:625c:f037:2:a00:27ff:fee0:8ab4",
+              "fe80::a00:27ff:fee0:8ab4",
+              "192.168.56.30"
+            ],
+            "mac": [
+              "08-00-27-A8-53-FD",
+              "08-00-27-E0-8A-B4"
+            ],
+            "name": "zeek",
+            "os": {
+              "codename": "resolute",
+              "family": "debian",
+              "kernel": "7.0.0-38-generic",
+              "name": "Ubuntu",
+              "platform": "ubuntu",
+              "type": "linux",
+              "version": "26.04.1 LTS (Resolute Raccoon)"
+            }
+          },
+          "input": {
+            "type": "log"
+          },
+          "log": {
+            "file": {
+              "path": "/var/log/audit/audit.log"
+            },
+            "offset": 91191
+          },
+          "related": {
+            "user": [
+              "root"
+            ]
+          },
+          "tags": [
+            "auditd-log"
+          ],
+          "user": {
+            "owner": {
+              "group": {
+                "id": "0",
+                "name": "root"
+              },
+              "id": "0",
+              "name": "root"
+            }
+          }
+        }
+      },
+      {
+        "_index": ".ds-logs-auditd.log-default-2026.10.20-000001",
+        "_id": "AaFW_0gKyge4__uNfbsf",
+        "_score": 0,
+        "_source": {
+          "@timestamp": "2026-10-20T01:48:59.544Z",
+          "agent": {
+            "ephemeral_id": "66c2622c-aa65-44ab-8494-c29e0cdf8acf",
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "name": "zeek",
+            "type": "filebeat",
+            "version": "9.5.5"
+          },
+          "auditd": {
+            "log": {
+              "proctitle": "/bin/echo^@auditd normalization test",
+              "record_type": "PROCTITLE",
+              "sequence": 398
+            }
+          },
+          "data_stream": {
+            "dataset": "auditd.log",
+            "namespace": "default",
+            "type": "logs"
+          },
+          "ecs": {
+            "version": "8.17.0"
+          },
+          "elastic_agent": {
+            "id": "f14dbc2d-aa93-45ed-8073-b1f356f8ecdf",
+            "snapshot": false,
+            "version": "9.5.5"
+          },
+          "event": {
+            "action": "proctitle",
+            "agent_id_status": "verified",
+            "dataset": "auditd.log",
+            "ingested": "2026-10-20T01:49:10Z",
+            "kind": "event"
+          },
+          "host": {
+            "architecture": "x86_64",
+            "containerized": false,
+            "hostname": "zeek",
+            "id": "5b049916a43446e7a7413d711f19a0bb",
+            "ip": [
+              "10.0.2.15",
+              "fd17:625c:f037:2:a00:27ff:fee0:8ab4",
+              "fe80::a00:27ff:fee0:8ab4",
+              "192.168.56.30"
+            ],
+            "mac": [
+              "08-00-27-A8-53-FD",
+              "08-00-27-E0-8A-B4"
+            ],
+            "name": "zeek",
+            "os": {
+              "codename": "resolute",
+              "family": "debian",
+              "kernel": "7.0.0-38-generic",
+              "name": "Ubuntu",
+              "platform": "ubuntu",
+              "type": "linux",
+              "version": "26.04.1 LTS (Resolute Raccoon)"
+            }
+          },
+          "input": {
+            "type": "log"
+          },
+          "log": {
+            "file": {
+              "path": "/var/log/audit/audit.log"
+            },
+            "offset": 91428
+          },
+          "tags": [
+            "auditd-log"
+          ]
+        }
+      }
+    ]
+  }
+}

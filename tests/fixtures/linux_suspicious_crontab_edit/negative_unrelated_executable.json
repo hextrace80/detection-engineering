@@ -1,0 +1,10 @@
+{
+  "event": {
+    "dataset": "auditd.log",
+    "action": "execve"
+  },
+  "process": {
+    "executable": "vim",
+    "args": ["vim", "/tmp/notes.txt"]
+  }
+}

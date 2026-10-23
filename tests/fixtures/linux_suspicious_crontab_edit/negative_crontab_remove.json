@@ -1,0 +1,10 @@
+{
+  "event": {
+    "dataset": "auditd.log",
+    "action": "execve"
+  },
+  "process": {
+    "executable": "crontab",
+    "args": ["crontab", "-r"]
+  }
+}
