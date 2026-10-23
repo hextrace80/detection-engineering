@@ -1,0 +1,40 @@
+[metadata]
+creation_date = "2026/10/21"
+
+[rule]
+author = ["John Ndukwe"]
+name = "PR-018 - Suspicious Linux Crontab Edit"
+description = "Detects attempts to edit user crontabs using crontab -e, which may indicate preparation for cron-based persistence. Administrative activity may be legitimate."
+rule_id = "c7df3c4e-24d1-4f7c-9812-84d0c61b909a"
+risk_score = 21
+severity = "low"
+type = "query"
+language = "kuery"
+from = "now-6m"
+interval = "5m"
+index = ["logs-auditd.log-*"]
+
+query = '''
+event.dataset: "auditd.log" and
+event.action: "execve" and
+process.executable: "crontab" and
+process.args: "-e"
+'''
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1053"
+name = "Scheduled Task/Job"
+reference = "https://attack.mitre.org/techniques/T1053/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1053.003"
+name = "Cron"
+reference = "https://attack.mitre.org/techniques/T1053/003/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"

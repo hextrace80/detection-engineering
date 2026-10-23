@@ -76,9 +76,22 @@ def matches_scheduled_task_creation(fixture):
     )
 
 
+def matches_linux_suspicious_crontab_edit(fixture):
+    event = fixture["event"]
+    process = fixture["process"]
+
+    return (
+        event["dataset"] == "auditd.log"
+        and event["action"] == "execve"
+        and process["executable"] == "crontab"
+        and "-e" in process["args"]
+    )
+
+
 MATCHERS = {
     "aws_iam_access_key_created": matches_aws_iam_access_key_created,
     "scheduled_task_creation": matches_scheduled_task_creation,
+    "linux_suspicious_crontab_edit": matches_linux_suspicious_crontab_edit,
 }
 
 

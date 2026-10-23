@@ -54,6 +54,46 @@
           "expected_match": false
         }
       ]
+    },
+    {
+      "name": "PR-018 - Suspicious Linux Crontab Edit",
+      "rule_file": "detections/linux_suspicious_crontab_edit.toml",
+      "fixture_directory": "tests/fixtures/linux_suspicious_crontab_edit",
+      "matcher": "linux_suspicious_crontab_edit",
+      "expected_rule_metadata": {
+        "severity": "low",
+        "risk_score": 21,
+        "index": ["logs-auditd.log-*"],
+        "mitre_id": "T1053.003"
+      },
+      "expected_query_fragments": [
+        "event.dataset: \"auditd.log\"",
+        "event.action: \"execve\"",
+        "process.executable: \"crontab\"",
+        "process.args: \"-e\""
+      ],
+      "test_cases": [
+        {
+          "fixture": "positive_crontab_edit.json",
+          "expected_match": true
+        },
+        {
+          "fixture": "negative_crontab_list.json",
+          "expected_match": false
+        },
+        {
+          "fixture": "negative_crontab_remove.json",
+          "expected_match": false
+        },
+        {
+          "fixture": "negative_unrelated_executable.json",
+          "expected_match": false
+        },
+        {
+          "fixture": "negative_incorrect_dataset.json",
+          "expected_match": false
+        }
+      ]
     }
   ]
 }

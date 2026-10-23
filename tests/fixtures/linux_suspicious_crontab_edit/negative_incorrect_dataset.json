@@ -1,0 +1,10 @@
+{
+  "event": {
+    "dataset": "windows.sysmon_operational",
+    "action": "execve"
+  },
+  "process": {
+    "executable": "crontab",
+    "args": ["crontab", "-e"]
+  }
+}

@@ -38,12 +38,17 @@ for object in mitreData['objects']:
                             mitreMapped [technique] =filtered_object
 
 alert_data ={}
+detection_files = []
+file_failures = {}
                           
 
 for root, dirs, files in os.walk("detections/"):
     for file in files:
         if file.endswith(".toml"):
           full_path = os.path.join (root, file)
+          detection_files.append(file)
+          file_failures[file] = 0
+          alert_data[file] = []
           with open(full_path,"rb") as toml:
                 alert = tomllib.load(toml)
                 filtered_object_array =[]
@@ -77,6 +82,7 @@ for file in alert_data:
         if tactic not in mitre_tactic_list:
           print ("The Mitre Tactic supplied does not exist:" + "\"" + tactic + "\"" + " in " + file)
           failure = 1
+          file_failures[file] = 1
 
         # Check to make sure the mitre technique ID is valid
         try:
@@ -85,6 +91,7 @@ for file in alert_data:
         except KeyError:
             print("Invalid MITRE Technique ID: " + "\"" + technique_id + "\"" + "in" + file)
             failure = 1
+            file_failures[file] = 1
         # check to see if the TID +  Name combination is valid
 
         try:
@@ -93,6 +100,7 @@ for file in alert_data:
             if alert_name != mitre_name:
                 print("MITRE Technique ID AND Name Mismatch in " + file + "EXPECTED: " +"\"" + mitre_name + "\"" + "GIVEN: " + "\"" + alert_name +"\"" )
                 failure = 1
+                file_failures[file] = 1
         
         except KeyError:
             pass
@@ -105,6 +113,7 @@ for file in alert_data:
                 if alert_name != mitre_name:
                     print("MITRE subTechnique ID AND Name Mismatch in " + file + "EXPECTED: " +"\"" + mitre_name + "\"" + "GIVEN: " + "\"" + alert_name +"\"" )
                     failure = 1
+                    file_failures[file] = 1
        
         except KeyError:
             pass
@@ -114,9 +123,35 @@ for file in alert_data:
             if mitreMapped[technique_id]['deprecated']== True:
                 print ("Deptrecated MITRE Techniwue ID: " +"\"" + technique_id + "\"" + "in " + file)
                 failure = 1
+                file_failures[file] = 1
         
         except KeyError:
             pass
+
+if not detection_files:
+    print("FAIL: MITRE ATT&CK validation — no TOML detection files found")
+    print("\nMITRE Validation Summary")
+    print("Total: 0")
+    print("Passed: 0")
+    print("Failed: 1")
+    print("\nOverall Result: FAIL")
+    sys.exit(1)
+
+passed = 0
+failed = 0
+for file in detection_files:
+    if file_failures[file]:
+        failed += 1
+        print("FAIL: MITRE ATT&CK validation — " + file)
+    else:
+        passed += 1
+        print("PASS: MITRE ATT&CK validation — " + file)
+
+print("\nMITRE Validation Summary")
+print("Total: " + str(len(detection_files)))
+print("Passed: " + str(passed))
+print("Failed: " + str(failed))
+print("\nOverall Result: " + ("PASS" if failed == 0 else "FAIL"))
 
 if failure !=0:
     sys.exit(1)
