@@ -7,6 +7,7 @@
 |PowerShell Invoke-WebRequest Downloading .BAT File|2026/10/11|['John Ndukwe']|40|medium|
 |Excessive Web Traffic|2026/10/11|['John Ndukwe']|60|low|
 |PowerShell Execution via a BAT File|2026/10/11|['John Ndukwe']|15|medium|
+|AWS IAM Access Key Created|2026/10/16|['John Ndukwe']|47|medium|
 |Web scanner activity -nmap and Nikto|2026/10/11|['John Ndukwe']|25|low|
 |Scheduled Task Creation via Schtasks|2026/10/15|['John Ndukwe']|47|medium|
 |Data Archive for Potential Exfil|2026/10/11|['John Ndukwe']|100|medium|

@@ -2,6 +2,7 @@ name,date,author,risk_score,severity,tactic,technique,subtechnique
 PowerShell Invoke-WebRequest Downloading .BAT File,2026/10/11,['John Ndukwe'],40,medium,Execution,T1059 - Command and Scripting Interpreter,T1059.001 - PowerShell
 Excessive Web Traffic,2026/10/11,['John Ndukwe'],60,low,Discovery,T1046 - Network Service Discovery,none - none
 PowerShell Execution via a BAT File,2026/10/11,['John Ndukwe'],15,medium,Execution,T1059 - Command and Scripting Interpreter,T1059.001 - PowerShell
+AWS IAM Access Key Created,2026/10/16,['John Ndukwe'],47,medium,Persistence,T1098 - Account Manipulation,none - none
 Web scanner activity -nmap and Nikto,2026/10/11,['John Ndukwe'],25,low,Discovery,T1046 - Network Service Discovery,none - none
 Scheduled Task Creation via Schtasks,2026/10/15,['John Ndukwe'],47,medium,Persistence,T1053 - Scheduled Task/Job,T1053.005 - Scheduled Task
 Data Archive for Potential Exfil,2026/10/11,['John Ndukwe'],100,medium,Collection,T1074 - Data Staged,T1074.001 - Local Data Staging

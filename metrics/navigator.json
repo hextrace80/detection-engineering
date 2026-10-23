@@ -71,6 +71,17 @@
 			"showSubtechniques": false
 		},
 		{
+			"techniqueID": "T1098",
+			"tactic": "persistence",
+			"score": 1,
+			"color": "",
+			"comment": "",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": false
+		},
+		{
 			"techniqueID": "T1053",
 			"tactic": "persistence",
 			"score": 1,
