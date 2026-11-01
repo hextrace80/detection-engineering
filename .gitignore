@@ -1,0 +1,27 @@
+# Python local artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Local editor/OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local credentials, certificates, and keys (never commit)
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials.json
+
+# Local test output
+.coverage
+htmlcov/
