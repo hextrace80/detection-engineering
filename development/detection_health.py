@@ -2,6 +2,7 @@
 
 import csv
 import io
+import json
 import os
 import sys
 from collections import Counter
@@ -10,13 +11,6 @@ from pathlib import Path
 from urllib.parse import quote
 
 import requests
-
-
-# Elastic Health Monitor Configuration
-# Replace these placeholders with your actual endpoints.
-os.environ["ELASTIC_KIBANA_URL"] = "https://my-security-project-ed39ef.kb.us-east4.gcp.elastic.cloud"
-os.environ["ELASTICSEARCH_URL"] = "https://my-security-project-ed39ef.es.us-east4.gcp.elastic.cloud"
-os.environ["ELASTIC_SECURITY_SPACE"] = "default"
 
 
 RULES_PAGE_SIZE = 100
@@ -28,6 +22,8 @@ DEFAULT_STALE_INTERVAL_MULTIPLIER = 3
 REPORTS_DIRECTORY = Path(__file__).resolve().parents[1] / "reports"
 INVENTORY_REPORT_NAME = "detection_health_inventory.csv"
 SUMMARY_REPORT_NAME = "detection_health_summary.md"
+SNAPSHOT_REPORT_NAME = "detection_health_snapshot.json"
+SNAPSHOT_SCHEMA_VERSION = 1
 
 
 class HealthMonitorError(Exception):
@@ -523,6 +519,39 @@ def markdown_summary(rows, lookback, generated_at):
     return "\n".join(lines) + "\n"
 
 
+def health_snapshot(rows, lookback, generated_at):
+    """Return a credential-free, JSON-serializable health-report snapshot."""
+    metrics = summary_metrics(rows)
+    alert_available = metrics["alert_available"]
+    return {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "generated_at": generation_timestamp(generated_at),
+        "lookback": lookback,
+        "collection": {
+            "source_kind": "live_read_only_collection",
+            "is_live": True,
+            "alert_activity_available": alert_available,
+            "alert_activity_status": "available" if alert_available else "unavailable",
+        },
+        "inventory": rows,
+        "metrics": {
+            "total": metrics["total"],
+            "enabled": metrics["enabled"],
+            "disabled": metrics["disabled"],
+            "healthy_enabled": metrics["healthy_enabled"],
+            "status_counts": dict(metrics["status_counts"]),
+            "alert_available": alert_available,
+            "alerting_enabled_count": len(metrics["alerting_enabled"]),
+            "zero_alert_enabled_count": len(metrics["zero_alert_enabled"]),
+            "total_alerts": metrics["total_alerts"],
+        },
+        "duplicate_candidates": [
+            [row["uuid"] for row in group]
+            for group in metrics["duplicate_candidates"]
+        ],
+    }
+
+
 def write_audit_reports(rows, lookback, generated_at, reports_directory=REPORTS_DIRECTORY):
     if any(row["alert_error"] for row in rows):
         raise HealthMonitorError("Audit reports were not written because alert activity is unavailable")
@@ -530,6 +559,7 @@ def write_audit_reports(rows, lookback, generated_at, reports_directory=REPORTS_
     contents = {
         INVENTORY_REPORT_NAME: inventory_csv(rows, generated_at),
         SUMMARY_REPORT_NAME: markdown_summary(rows, lookback, generated_at),
+        SNAPSHOT_REPORT_NAME: json.dumps(health_snapshot(rows, lookback, generated_at), indent=2, sort_keys=True) + "\n",
     }
     reports_directory.mkdir(parents=True, exist_ok=True)
     targets = {name: reports_directory / name for name in contents}
@@ -557,7 +587,11 @@ def write_audit_reports(rows, lookback, generated_at, reports_directory=REPORTS_
         for temporary in temporary_paths.values():
             temporary.unlink(missing_ok=True)
 
-    return targets[INVENTORY_REPORT_NAME], targets[SUMMARY_REPORT_NAME]
+    return (
+        targets[INVENTORY_REPORT_NAME],
+        targets[SUMMARY_REPORT_NAME],
+        targets[SNAPSHOT_REPORT_NAME],
+    )
 
 
 def required_environment():
@@ -624,11 +658,11 @@ def main():
         return 1
 
     try:
-        inventory_path, summary_path = write_audit_reports(rows, config["lookback"], generated_at)
+        inventory_path, summary_path, snapshot_path = write_audit_reports(rows, config["lookback"], generated_at)
     except HealthMonitorError as error:
         print(f"ERROR: {error}")
         return 1
-    print(f"Audit reports written: {inventory_path}, {summary_path}")
+    print(f"Audit reports written: {inventory_path}, {summary_path}, {snapshot_path}")
     return 0
 
 

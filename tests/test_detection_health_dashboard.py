@@ -1,0 +1,252 @@
+"""Offline tests for the static Detection Health Dashboard generator."""
+
+import csv
+import importlib.util
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_PATH = REPOSITORY_ROOT / "development" / "build_detection_health_dashboard.py"
+SPEC = importlib.util.spec_from_file_location("detection_health_dashboard", SCRIPT_PATH)
+dashboard = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(dashboard)
+
+
+TIMESTAMP = "2026-10-19T03:19:56.004046Z"
+CSV_FIELDS = [
+    "Report generation timestamp",
+    "Rule name",
+    "Stable rule_id",
+    "Elastic internal UUID",
+    "Enabled state",
+    "Health classification",
+    "Rule type",
+    "Execution interval",
+    "Last execution time",
+    "Last execution status",
+    "Alert count for selected lookback",
+    "Most recent alert timestamp",
+    "Review flags",
+]
+
+
+def legacy_record(**changes):
+    record = {
+        "Report generation timestamp": TIMESTAMP,
+        "Rule name": "Repository rule",
+        "Stable rule_id": "stable-rule-id",
+        "Elastic internal UUID": "elastic-uuid-1",
+        "Enabled state": "enabled",
+        "Health classification": "HEALTHY",
+        "Rule type": "query",
+        "Execution interval": "5m",
+        "Last execution time": "2026-10-19T03:17:35.734Z",
+        "Last execution status": "succeeded",
+        "Alert count for selected lookback": "2",
+        "Most recent alert timestamp": "2026-10-18T11:00:00Z",
+        "Review flags": "",
+    }
+    record.update(changes)
+    return record
+
+
+def write_legacy_reports(directory, records):
+    csv_path = directory / "detection_health_inventory.csv"
+    with csv_path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        writer.writerows(records)
+    markdown_path = directory / "detection_health_summary.md"
+    markdown_path.write_text(
+        f"# Detection Health & Metrics Audit Report\n\nGenerated: {TIMESTAMP}\nAlert lookback: `now-30d`\n",
+        encoding="utf-8",
+    )
+    return csv_path, markdown_path
+
+
+def write_detection(directory, name="Repository rule", rule_id="stable-rule-id", description="Description"):
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "repository_rule.toml"
+    path.write_text(
+        "\n".join(
+            [
+                "[rule]",
+                f'name = "{name}"',
+                f'description = "{description}"',
+                f'rule_id = "{rule_id}"',
+                'severity = "medium"',
+                "risk_score = 47",
+                'type = "query"',
+                'index = ["logs-test-*"]',
+                "",
+                "[[rule.threat]]",
+                'framework = "MITRE ATT&CK"',
+                "[[rule.threat.technique]]",
+                'id = "T1098"',
+                'name = "Account Manipulation"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+class DetectionHealthDashboardTests(unittest.TestCase):
+    def test_legacy_reports_convert_to_explicit_historical_snapshot(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            csv_path, markdown_path = write_legacy_reports(directory, [legacy_record()])
+            snapshot = dashboard.convert_legacy_reports(csv_path, markdown_path)
+
+        self.assertEqual(snapshot["schema_version"], 1)
+        self.assertEqual(snapshot["generated_at"], TIMESTAMP)
+        self.assertFalse(snapshot["collection"]["is_live"])
+        self.assertEqual(snapshot["collection"]["source_kind"], "legacy_report_snapshot")
+        self.assertEqual(snapshot["metrics"]["total_alerts"], 2)
+
+    def test_unavailable_alert_data_remains_unavailable_not_zero(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            csv_path, markdown_path = write_legacy_reports(
+                directory,
+                [legacy_record(**{"Alert count for selected lookback": "UNAVAILABLE"})],
+            )
+            snapshot = dashboard.convert_legacy_reports(csv_path, markdown_path)
+
+        self.assertFalse(snapshot["metrics"]["alert_available"])
+        self.assertIsNone(snapshot["metrics"]["total_alerts"])
+        self.assertIsNotNone(snapshot["inventory"][0]["alert_error"])
+
+    def test_stable_rule_id_matches_even_when_names_differ(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            csv_path, markdown_path = write_legacy_reports(
+                directory,
+                [legacy_record(**{"Rule name": "Elastic renamed rule"})],
+            )
+            snapshot = dashboard.convert_legacy_reports(csv_path, markdown_path)
+            detection_directory = directory / "detections"
+            write_detection(detection_directory, name="Repository rule")
+            repository_rules = dashboard.load_repository_rules(detection_directory)
+            model = dashboard.dashboard_model(snapshot, repository_rules)
+
+        self.assertEqual(len(model["rows"]), 1)
+        self.assertEqual(model["rows"][0]["deployment"]["state"], "Deployed")
+        self.assertEqual(model["rows"][0]["name"], "Repository rule")
+        self.assertEqual(model["rows"][0]["uuid"], "elastic-uuid-1")
+
+    def test_repository_and_elastic_only_rules_are_separate(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            csv_path, markdown_path = write_legacy_reports(
+                directory,
+                [legacy_record(**{"Stable rule_id": "elastic-only"})],
+            )
+            snapshot = dashboard.convert_legacy_reports(csv_path, markdown_path)
+            detection_directory = directory / "detections"
+            write_detection(detection_directory, rule_id="repository-only")
+            model = dashboard.dashboard_model(snapshot, dashboard.load_repository_rules(detection_directory))
+
+        states = {row["deployment"]["state"] for row in model["rows"]}
+        self.assertEqual(states, {"Repository-only", "Elastic-only"})
+
+    def test_duplicate_names_are_candidates_but_distinguished_by_uuid(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            csv_path, markdown_path = write_legacy_reports(
+                directory,
+                [
+                    legacy_record(**{"Elastic internal UUID": "uuid-a", "Rule name": "Same Name"}),
+                    legacy_record(**{"Elastic internal UUID": "uuid-b", "Rule name": " same   name "}),
+                ],
+            )
+            snapshot = dashboard.convert_legacy_reports(csv_path, markdown_path)
+            model = dashboard.dashboard_model(snapshot, [])
+
+        self.assertEqual(snapshot["duplicate_candidates"], [["uuid-a", "uuid-b"]])
+        self.assertEqual([row["uuid"] for row in model["review_sections"]["duplicate_candidates"][0]], ["uuid-a", "uuid-b"])
+
+    def test_duplicate_repository_stable_ids_are_not_unsafe_correlations(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            csv_path, markdown_path = write_legacy_reports(directory, [legacy_record()])
+            snapshot = dashboard.convert_legacy_reports(csv_path, markdown_path)
+            detection_directory = directory / "detections"
+            first = write_detection(detection_directory, name="First duplicate")
+            second = detection_directory / "second_duplicate.toml"
+            second.write_text(first.read_text(encoding="utf-8").replace("First duplicate", "Second duplicate"), encoding="utf-8")
+            model = dashboard.dashboard_model(snapshot, dashboard.load_repository_rules(detection_directory))
+
+        self.assertEqual({row["deployment"]["state"] for row in model["rows"]}, {"Repository-only", "Elastic-only"})
+        self.assertTrue(
+            any("DUPLICATE_REPOSITORY_STABLE_ID" in row["review_flags"] for row in model["rows"])
+        )
+        self.assertTrue(
+            any("AMBIGUOUS_REPOSITORY_STABLE_ID" in row["review_flags"] for row in model["rows"])
+        )
+
+    def test_html_escapes_untrusted_metadata_and_uses_text_content_rendering(self):
+        snapshot = {
+            "schema_version": 1,
+            "generated_at": TIMESTAMP,
+            "lookback": "now-30d",
+            "collection": {"source_kind": "legacy_report_snapshot", "is_live": False},
+            "inventory": [
+                {
+                    "name": "<script>alert(1)</script>",
+                    "rule_id": "safe-id",
+                    "uuid": "uuid-1",
+                    "enabled": True,
+                    "type": "query",
+                    "interval": "5m",
+                    "status": "HEALTHY",
+                    "execution": {},
+                    "alert_activity": None,
+                    "alert_error": None,
+                    "review_flags": ["ZERO_ALERTS_IN_LOOKBACK"],
+                }
+            ],
+        }
+        model = dashboard.dashboard_model(snapshot, [])
+        html = dashboard.dashboard_html(model)
+
+        self.assertNotIn("<script>alert(1)</script>", html)
+        self.assertIn("\\u003cscript\\u003ealert(1)\\u003c/script\\u003e", html)
+        self.assertNotIn("innerHTML", dashboard.DASHBOARD_JS_CONTENT)
+        self.assertIn("textContent", dashboard.DASHBOARD_JS_CONTENT)
+
+    def test_generation_writes_static_assets_and_does_not_fabricate_effectiveness(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            csv_path, markdown_path = write_legacy_reports(
+                directory,
+                [legacy_record(**{"Alert count for selected lookback": "0", "Review flags": "ZERO_ALERTS_IN_LOOKBACK"})],
+            )
+            snapshot = dashboard.convert_legacy_reports(csv_path, markdown_path)
+            detection_directory = directory / "detections"
+            write_detection(detection_directory)
+            model = dashboard.dashboard_model(snapshot, dashboard.load_repository_rules(detection_directory))
+            targets = dashboard.generate_dashboard(model, directory)
+            html = targets[dashboard.DASHBOARD_HTML].read_text(encoding="utf-8")
+
+        self.assertTrue(targets[dashboard.DASHBOARD_CSS].name.endswith(".css"))
+        self.assertIn('"is_live":false', html)
+        self.assertIn('"Historical"', dashboard.DASHBOARD_JS_CONTENT)
+        self.assertIn("Date.now()", dashboard.DASHBOARD_JS_CONTENT)
+        self.assertEqual(model["rows"][0]["detection_effectiveness"]["status"], "Not assessed")
+        self.assertNotIn("true_positive", json.dumps(model))
+        self.assertNotIn("false_positive", json.dumps(model))
+
+    def test_malformed_snapshot_fails_safely(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "bad.json"
+            path.write_text("[]", encoding="utf-8")
+            with self.assertRaisesRegex(dashboard.DashboardError, "root must be a JSON object"):
+                dashboard.load_snapshot(path)
+
+
+if __name__ == "__main__":
+    unittest.main()
