@@ -65,6 +65,18 @@ class FakeClient:
         self.responses = FakeResponses(responses)
 
 
+class FakeAPIStatusError(health_agent.APIStatusError):
+    def __init__(self, status_code, body):
+        Exception.__init__(self, "sensitive response body must not be exposed")
+        self.status_code = status_code
+        self.body = body
+
+
+class FakeAPIConnectionError(health_agent.APIConnectionError):
+    def __init__(self):
+        Exception.__init__(self, "sensitive endpoint must not be exposed")
+
+
 def final_json(action="Review the source with an analyst."):
     return json.dumps({
         "potential_causes": ["Telemetry may be intermittent."],
@@ -169,6 +181,28 @@ class HealthAgentTests(unittest.TestCase):
                     self.assertNotIn("api key", str(context.exception))
             tools = health_agent.EvidenceTools(document, health_agent.select_rule(document), detections)
             self.assertEqual(tools.get_telemetry_evidence(RULE_UUID)["status"], "UNAVAILABLE")
+
+    def test_reports_safe_openai_http_error_categories(self):
+        cases = (
+            (400, {"type": "invalid_request_error", "code": "invalid_value", "message": "secret"}, "HTTP 400: invalid_request_error/invalid_value"),
+            (401, {"error": {"type": "authentication_error", "code": "invalid_api_key", "message": "secret"}}, "HTTP 401: authentication_error/invalid_api_key"),
+            (403, {"type": "permission_error", "code": "insufficient_quota", "message": "secret"}, "HTTP 403: permission_error/insufficient_quota"),
+            (429, {"type": "rate_limit_error", "code": "rate_limit_exceeded", "message": "secret"}, "HTTP 429: rate_limit_error/rate_limit_exceeded"),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            snapshot_path, detections = self.write_fixture_files(temporary)
+            for status, body, expected in cases:
+                with self.subTest(status=status):
+                    with self.assertRaisesRegex(health_agent.HealthAgentError, expected) as context:
+                        health_agent.run_investigation(snapshot_path, Path(temporary) / "findings.json", client=FakeClient([FakeAPIStatusError(status, body)]), detections_directory=detections)
+                    self.assertNotIn("secret", str(context.exception))
+
+    def test_reports_openai_connection_failure_without_details(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            snapshot_path, detections = self.write_fixture_files(temporary)
+            with self.assertRaisesRegex(health_agent.HealthAgentError, "connection failed") as context:
+                health_agent.run_investigation(snapshot_path, Path(temporary) / "findings.json", client=FakeClient([FakeAPIConnectionError()]), detections_directory=detections)
+        self.assertNotIn("endpoint", str(context.exception))
 
     def test_strict_report_validation_and_no_overwrite_on_failure(self):
         client = FakeClient([FakeResponse([call("get_rule_details", "call-1")]), FakeResponse(output_text=json.dumps({"potential_causes": [], "uncertainties": []}))])

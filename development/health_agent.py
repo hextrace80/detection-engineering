@@ -7,6 +7,15 @@ import tempfile
 import tomllib
 from pathlib import Path
 
+try:
+    from openai import APIConnectionError, APIStatusError
+except ImportError:  # Keep local mocked tests independent of the optional live SDK.
+    class APIStatusError(Exception):
+        pass
+
+    class APIConnectionError(Exception):
+        pass
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SNAPSHOT = REPOSITORY_ROOT / "reports" / "detection_health_snapshot.json"
@@ -244,6 +253,19 @@ def _create_client():
     return OpenAI(api_key=api_key)
 
 
+def _safe_openai_error_label(error):
+    """Return only a short API error type/code; never surface a response message."""
+    body = getattr(error, "body", None)
+    if isinstance(body, dict):
+        nested = body.get("error")
+        source = nested if isinstance(nested, dict) else body
+        labels = [source.get("type"), source.get("code")]
+    else:
+        labels = [getattr(error, "type", None), getattr(error, "code", None)]
+    safe = [value for value in labels if isinstance(value, str) and value and len(value) <= 80 and value.replace("_", "").replace("-", "").replace(".", "").isalnum()]
+    return "/".join(safe) if safe else "unknown_error"
+
+
 def _safe_write_json(path, document):
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -293,6 +315,14 @@ def run_investigation(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT
     while True:
         try:
             response = client.responses.create(**request)
+        except APIStatusError as error:
+            status = getattr(error, "status_code", None)
+            safe_status = str(status) if isinstance(status, int) else "unknown"
+            raise HealthAgentError(
+                f"OpenAI investigation request failed with HTTP {safe_status}: {_safe_openai_error_label(error)}"
+            ) from error
+        except APIConnectionError as error:
+            raise HealthAgentError("OpenAI investigation connection failed") from error
         except Exception as error:
             raise HealthAgentError("OpenAI investigation request failed") from error
         calls = _function_calls(response)
