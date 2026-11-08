@@ -68,10 +68,10 @@ jobs:
       - name: Collect live detection health snapshot
         if: steps.mode.outputs.mode == 'live'
         env:
-          ELASTIC_HEALTH_KEY: ${{ secrets.ELASTIC_KEY }}
-          ELASTIC_KIBANA_URL: ${{ secrets.ELASTIC_KIBANA_URL }}
-          ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
-          ELASTIC_SECURITY_SPACE: ${{ secrets.ELASTIC_SECURITY_SPACE }}
+          ELASTIC_HEALTH_KEY: ${{ secrets.ELASTIC_HEALTH_KEY }}
+          ELASTIC_KIBANA_URL: ${{ vars.ELASTIC_KIBANA_URL }}
+          ELASTICSEARCH_URL: ${{ vars.ELASTICSEARCH_URL }}
+          ELASTIC_SECURITY_SPACE: ${{ vars.ELASTIC_SECURITY_SPACE }}
         run: python development/detection_health.py
 
       - name: Verify saved historical snapshot for demo modes
