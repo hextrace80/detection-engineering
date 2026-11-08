@@ -24,7 +24,7 @@ class DashboardWorkflowTests(unittest.TestCase):
     def test_pull_requests_use_demo_mode_without_elastic_secrets(self):
         self.assertIn('"${{ github.event_name }}" == "pull_request"', self.workflow)
         self.assertIn("mode=demo", self.workflow)
-        self.assertEqual(self.workflow.count("secrets.ELASTIC_HEALTH_KEY"), 1)
+        self.assertEqual(self.workflow.count("secrets.ELASTIC_KEY"), 1)
         self.assertEqual(self.workflow.count("secrets.ELASTIC_KIBANA_URL"), 1)
         self.assertEqual(self.workflow.count("secrets.ELASTICSEARCH_URL"), 1)
 
