@@ -74,7 +74,7 @@ jobs:
           ELASTIC_SECURITY_SPACE: ${{ secrets.ELASTIC_SECURITY_SPACE }}
         run: python development/detection_health.py
 
-      - name: Verify saved historical snapshot for demo mode
+      - name: Verify saved historical snapshot for demo modes
         if: steps.mode.outputs.mode == 'demo'
         shell: bash
         run: test -f reports/detection_health_snapshot.json
