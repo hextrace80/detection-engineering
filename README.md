@@ -101,7 +101,21 @@ prior complete reports instead of replacing them with zero-alert data.
 
 ### Publishing
 
-No dashboard publishing workflow is configured in this local implementation.
-Future GitHub Pages or artifact publishing must be a separate, authorized
-main-branch workflow with no Elastic deployment credentials. Pull-request
-validation must never deploy rules to Elastic.
+The repository contains one isolated dashboard workflow,
+`.github/workflows/detection_health_dashboard.yml`. It never calls the
+detection deployment script or receives the `ELASTIC_KEY` deployment secret.
+
+- Pull requests run the dashboard tests and build a credential-free **demo**
+  artifact from the saved historical snapshot. They do not publish it.
+- The scheduled 9 AM `America/New_York` run selects **live** mode, collects a
+  fresh read-only health snapshot, then builds and publishes only the public
+  `index.html`, CSS, and JavaScript bundle.
+- Manual runs expose an explicit `live`/`demo` choice. `demo` preserves the
+  historical timestamp and label; it does not represent current Elastic data.
+- A live collection failure stops the job before a Pages artifact is uploaded,
+  so the previous published dashboard remains in place.
+
+Only the live collection step receives the dedicated read-only health
+credentials. Configure GitHub Pages to deploy from GitHub Actions before
+enabling this workflow on `main`; the detailed setup is intentionally kept out
+of the browser bundle.

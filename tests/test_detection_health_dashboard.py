@@ -240,6 +240,33 @@ class DetectionHealthDashboardTests(unittest.TestCase):
         self.assertNotIn("true_positive", json.dumps(model))
         self.assertNotIn("false_positive", json.dumps(model))
 
+    def test_pages_site_contains_only_public_assets(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            csv_path, markdown_path = write_legacy_reports(directory, [legacy_record()])
+            snapshot = dashboard.convert_legacy_reports(csv_path, markdown_path)
+            model = dashboard.dashboard_model(snapshot, [])
+            site_directory = directory / "site"
+            targets = dashboard.generate_pages_site(model, site_directory)
+            dashboard.validate_pages_site(site_directory)
+
+        self.assertEqual(set(targets), {dashboard.PAGES_INDEX, dashboard.DASHBOARD_CSS, dashboard.DASHBOARD_JS})
+        self.assertEqual(targets[dashboard.PAGES_INDEX].name, "index.html")
+
+    def test_pages_site_rejects_snapshot_or_sensitive_configuration(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            directory.mkdir(exist_ok=True)
+            for name in dashboard.PUBLISHED_SITE_FILENAMES:
+                (directory / name).write_text("safe", encoding="utf-8")
+            (directory / dashboard.SNAPSHOT_FILENAME).write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(dashboard.DashboardError, "unexpected"):
+                dashboard.validate_pages_site(directory)
+            (directory / dashboard.SNAPSHOT_FILENAME).unlink()
+            (directory / dashboard.PAGES_INDEX).write_text("https://example.elastic.cloud", encoding="utf-8")
+            with self.assertRaisesRegex(dashboard.DashboardError, "forbidden configuration marker"):
+                dashboard.validate_pages_site(directory)
+
     def test_malformed_snapshot_fails_safely(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "bad.json"

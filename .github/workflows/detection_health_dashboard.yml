@@ -1,0 +1,106 @@
+name: Refresh and Publish Detection Health Dashboard
+
+on:
+  pull_request:
+    paths:
+      - 'development/detection_health.py'
+      - 'development/build_detection_health_dashboard.py'
+      - 'tests/test_detection_health.py'
+      - 'tests/test_detection_health_dashboard.py'
+      - 'tests/test_dashboard_workflow.py'
+      - 'detections/**/*.toml'
+      - 'reports/detection_health_snapshot.json'
+      - '.github/workflows/detection_health_dashboard.yml'
+      - 'README.md'
+  schedule:
+    - cron: "0 9 * * *"
+      timezone: "America/New_York"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "live collects a new read-only Elastic snapshot; demo publishes the saved historical snapshot."
+        required: true
+        default: live
+        type: choice
+        options:
+          - live
+          - demo
+
+permissions:
+  contents: read
+
+concurrency:
+  group: detection-health-dashboard-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install read-only collector dependency
+        run: python -m pip install --disable-pip-version-check requests
+
+      - name: Select dashboard mode
+        id: mode
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            mode=demo
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            mode=live
+          else
+            mode="${{ inputs.mode }}"
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "Dashboard mode: $mode"
+
+      - name: Run dashboard and collector tests
+        run: python -m unittest tests/test_detection_health.py tests/test_detection_health_dashboard.py tests/test_dashboard_workflow.py
+
+      - name: Collect live detection health snapshot
+        if: steps.mode.outputs.mode == 'live'
+        env:
+          ELASTIC_HEALTH_KEY: ${{ secrets.ELASTIC_HEALTH_KEY }}
+          ELASTIC_KIBANA_URL: ${{ secrets.ELASTIC_KIBANA_URL }}
+          ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
+          ELASTIC_SECURITY_SPACE: ${{ secrets.ELASTIC_SECURITY_SPACE }}
+        run: python development/detection_health.py
+
+      - name: Verify saved historical snapshot for demo mode
+        if: steps.mode.outputs.mode == 'demo'
+        shell: bash
+        run: test -f reports/detection_health_snapshot.json
+
+      - name: Build public dashboard bundle
+        run: python development/build_detection_health_dashboard.py --snapshot reports/detection_health_snapshot.json --reports-directory reports --site-directory _site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: Publish dashboard to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
