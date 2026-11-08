@@ -22,7 +22,17 @@ SNAPSHOT_FILENAME = "detection_health_snapshot.json"
 DASHBOARD_HTML = "detection_health_dashboard.html"
 DASHBOARD_CSS = "detection_health_dashboard.css"
 DASHBOARD_JS = "detection_health_dashboard.js"
+PAGES_INDEX = "index.html"
 SNAPSHOT_SCHEMA_VERSION = 1
+PUBLISHED_SITE_FILENAMES = {PAGES_INDEX, DASHBOARD_CSS, DASHBOARD_JS}
+FORBIDDEN_PUBLISHED_MARKERS = (
+    "authorization:",
+    "apikey ",
+    "elastic_health_key",
+    "elastic_kibana_url",
+    "elasticsearch_url",
+    ".elastic.cloud",
+)
 
 
 class DashboardError(Exception):
@@ -579,6 +589,46 @@ def generate_dashboard(model, output_directory):
     )
 
 
+def generate_pages_site(model, output_directory):
+    """Build the intentionally small, public GitHub Pages site bundle.
+
+    The browser bundle contains only the already-sanitized dashboard model.  It
+    deliberately excludes the raw snapshot and every local report artifact.
+    """
+    return write_bundle(
+        {
+            PAGES_INDEX: dashboard_html(model),
+            DASHBOARD_CSS: DASHBOARD_CSS_CONTENT,
+            DASHBOARD_JS: DASHBOARD_JS_CONTENT,
+        },
+        output_directory,
+    )
+
+
+def validate_pages_site(output_directory):
+    """Reject an incomplete or potentially sensitive Pages artifact bundle."""
+    output_directory = Path(output_directory)
+    if not output_directory.is_dir():
+        raise DashboardError(f"Pages site directory does not exist: {output_directory}")
+
+    actual_files = {path.name for path in output_directory.iterdir() if path.is_file()}
+    missing = PUBLISHED_SITE_FILENAMES - actual_files
+    unexpected = actual_files - PUBLISHED_SITE_FILENAMES
+    if missing or unexpected:
+        details = []
+        if missing:
+            details.append(f"missing: {', '.join(sorted(missing))}")
+        if unexpected:
+            details.append(f"unexpected: {', '.join(sorted(unexpected))}")
+        raise DashboardError("Pages site files are not safe to publish (" + "; ".join(details) + ")")
+
+    for name in sorted(PUBLISHED_SITE_FILENAMES):
+        content = (output_directory / name).read_text(encoding="utf-8").casefold()
+        for marker in FORBIDDEN_PUBLISHED_MARKERS:
+            if marker in content:
+                raise DashboardError(f"Pages site contains a forbidden configuration marker in {name}: {marker}")
+
+
 def build_from_arguments(arguments):
     reports_directory = Path(arguments.reports_directory)
     if arguments.snapshot:
@@ -598,6 +648,10 @@ def build_from_arguments(arguments):
     )
     model = dashboard_model(snapshot, repository_rules)
     targets = generate_dashboard(model, reports_directory)
+    if arguments.site_directory:
+        site_targets = generate_pages_site(model, Path(arguments.site_directory))
+        validate_pages_site(Path(arguments.site_directory))
+        targets.update({f"site_{name}": path for name, path in site_targets.items()})
     return snapshot, model, targets
 
 
@@ -607,6 +661,10 @@ def parse_arguments(argv=None):
     source.add_argument("--snapshot", help="Path to an existing structured health JSON snapshot.")
     source.add_argument("--from-legacy-reports", action="store_true", help="Convert existing CSV/Markdown reports (default).")
     parser.add_argument("--reports-directory", default=DEFAULT_REPORTS_DIRECTORY)
+    parser.add_argument(
+        "--site-directory",
+        help="Optional public static-site directory. Only index.html, CSS, and JavaScript are written.",
+    )
     parser.add_argument("--detections-directory", default=DEFAULT_DETECTIONS_DIRECTORY)
     parser.add_argument("--manifest", default=REPOSITORY_ROOT / "tests" / "test_manifest.json")
     return parser.parse_args(argv)
