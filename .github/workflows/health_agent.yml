@@ -1,0 +1,54 @@
+name: Investigate Detection Health
+
+on:
+  workflow_dispatch:
+    inputs:
+      rule_uuid:
+        description: "Optional deployed Elastic rule UUID to investigate; leave blank to select one flagged rule."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  investigate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install read-only investigation dependencies
+        run: python -m pip install --disable-pip-version-check requests openai
+
+      - name: Collect fresh read-only detection health snapshot
+        env:
+          ELASTIC_HEALTH_KEY: ${{ secrets.ELASTIC_HEALTH_KEY }}
+          ELASTIC_KIBANA_URL: ${{ vars.ELASTIC_KIBANA_URL }}
+          ELASTICSEARCH_URL: ${{ vars.ELASTICSEARCH_URL }}
+          ELASTIC_SECURITY_SPACE: ${{ vars.ELASTIC_SECURITY_SPACE }}
+        run: python development/detection_health.py
+
+      - name: Run one bounded AI investigation
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+        shell: bash
+        run: |
+          args=(--snapshot reports/detection_health_snapshot.json --output "$RUNNER_TEMP/agent_findings.json")
+          if [[ -n "${{ inputs.rule_uuid }}" ]]; then
+            args+=(--rule-uuid "${{ inputs.rule_uuid }}")
+          fi
+          python development/health_agent.py "${args[@]}"
+
+      - name: Upload investigation finding
+        uses: actions/upload-artifact@v4
+        with:
+          name: detection-health-investigation
+          path: ${{ runner.temp }}/agent_findings.json
+          if-no-files-found: error
