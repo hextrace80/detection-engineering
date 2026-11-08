@@ -140,6 +140,28 @@ class HealthAgentTests(unittest.TestCase):
         self.assertNotIn("secret command text", json.dumps(client.responses.calls[0]))
         self.assertEqual(client.responses.calls[0]["max_output_tokens"], health_agent.MAX_MODEL_OUTPUT_TOKENS)
 
+    def test_replays_local_response_and_tool_history_with_store_disabled(self):
+        first_call = call("get_health_evidence", "call-1")
+        second_call = call("get_telemetry_evidence", "call-2")
+        client = FakeClient([
+            FakeResponse([first_call]),
+            FakeResponse([second_call]),
+            FakeResponse(output_text=final_json()),
+        ])
+        with tempfile.TemporaryDirectory() as temporary:
+            snapshot_path, detections = self.write_fixture_files(temporary)
+            health_agent.run_investigation(snapshot_path, Path(temporary) / "findings.json", client=client, detections_directory=detections)
+        first, second, third = client.responses.calls
+        self.assertTrue(all(call["store"] is False for call in (first, second, third)))
+        self.assertTrue(all("previous_response_id" not in call for call in (first, second, third)))
+        self.assertEqual(second["input"][1], first_call)
+        self.assertEqual(second["input"][2]["type"], "function_call_output")
+        self.assertEqual(second["input"][2]["call_id"], "call-1")
+        self.assertEqual(third["input"][1], first_call)
+        self.assertEqual(third["input"][3], second_call)
+        self.assertEqual(third["input"][4]["call_id"], "call-2")
+        self.assertEqual(second["instructions"], health_agent.SYSTEM_INSTRUCTIONS)
+
     def test_rejects_unknown_invalid_and_repeated_tool_calls_without_writing_output(self):
         cases = [
             [FakeResponse([call("unknown_tool", "call-1")])],

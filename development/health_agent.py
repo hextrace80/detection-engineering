@@ -298,10 +298,11 @@ def run_investigation(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT
         "operational_status": _safe_text(selected.get("status")),
         "telemetry_status": _safe_text((selected.get("telemetry") or {}).get("status")) if isinstance(selected.get("telemetry"), dict) else "NOT_ASSESSED",
     }
+    history = [{"role": "user", "content": json.dumps(context, sort_keys=True)}]
     request = {
         "model": model,
         "instructions": SYSTEM_INSTRUCTIONS,
-        "input": [{"role": "user", "content": json.dumps(context, sort_keys=True)}],
+        "input": history,
         "tools": TOOL_DEFINITIONS,
         "tool_choice": "auto",
         "max_output_tokens": MAX_MODEL_OUTPUT_TOKENS,
@@ -310,7 +311,6 @@ def run_investigation(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT
     }
     evidence = []
     seen_calls = set()
-    previous_response_id = None
     response = None
     while True:
         try:
@@ -326,6 +326,7 @@ def run_investigation(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT
         except Exception as error:
             raise HealthAgentError("OpenAI investigation request failed") from error
         calls = _function_calls(response)
+        history.extend(_value(response, "output"))
         if not calls:
             break
         if len(evidence) + len(calls) > MAX_TOOL_CALLS:
@@ -348,11 +349,9 @@ def run_investigation(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT
             result = tools.dispatch(name, arguments)
             evidence.append({"tool": name, "result": result})
             outputs.append({"type": "function_call_output", "call_id": call_id, "output": json.dumps(result, sort_keys=True)})
-        previous_response_id = _value(response, "id")
-        if not isinstance(previous_response_id, str) or not previous_response_id:
-            raise HealthAgentError("OpenAI returned a malformed response identifier")
+        history.extend(outputs)
         request = {
-            "model": model, "previous_response_id": previous_response_id, "input": outputs,
+            "model": model, "instructions": SYSTEM_INSTRUCTIONS, "input": history,
             "tools": TOOL_DEFINITIONS, "tool_choice": "auto", "max_output_tokens": MAX_MODEL_OUTPUT_TOKENS,
             "store": False, "text": {"format": {"type": "json_schema", "name": "health_investigation", "strict": True, "schema": MODEL_SCHEMA}},
         }
