@@ -1,121 +1,93 @@
-# Detection Engineering
+# Detection Engineering — Elastic Security Lab
 
-[![Detection validation and deployment](https://github.com/jndukwe8080/detection-engineering/actions/workflows/elastic_sync.yml/badge.svg)](https://github.com/jndukwe8080/detection-engineering/actions/workflows/elastic_sync.yml)
+Hands-on **detection-as-code** project for authoring, validating, testing, deploying, and monitoring security detections in an Elastic Security lab.
 
-[![TOML/MITRE validation](https://github.com/jndukwe8080/detection-engineering/actions/workflows/toml_mitre_validation.yml/badge.svg)](https://github.com/jndukwe8080/detection-engineering/actions/workflows/toml_mitre_validation.yml)
+The goal is to treat detections like software: keep rule definitions in Git, review changes, validate metadata and MITRE ATT&CK mappings, test expected behavior, and measure operational health.
 
-This is an independent Elastic Security detection-engineering lab. It is not a
-production SOC environment.
+> **Project scope:** This is an independent lab/portfolio project, not a production security service. Simulated fixture tests do not execute Elastic KQL or prove end-to-end detection coverage.
 
-## Detection Health Dashboard
+## At a glance
 
-The static Detection Health Dashboard combines repository-managed TOML metadata
-with a Detection Health & Metrics Audit snapshot. It is designed to make four
-separate dimensions visible:
+- **15 TOML detection definitions** targeting selected Linux auditd, Windows/Sysmon, Zeek, and AWS CloudTrail signals.
+- **Python-based validation** for required rule metadata and MITRE ATT&CK technique mappings.
+- **Offline positive/negative test fixtures** for selected detections, plus Python tests for correlation, health reporting, and deployment utilities.
+- **GitHub Actions** validation and a controlled Elastic rule synchronization workflow.
+- **Detection health reporting** for rule inventory, execution status, alert activity, and potential duplicates.
+- **Auditd event-processing utilities** for correlation and integration with Elastic.
 
-- **Deployment state:** whether an Elastic rule is represented in the snapshot
-  and whether it is enabled.
-- **Operational health:** execution status and freshness reported by Elastic.
-- **Alert activity:** recorded alerts in the selected lookback window.
-- **Validation health:** whether a repository rule is registered in the offline
-  fixture manifest. This does not claim a stored test execution result.
+## Example detections
 
-The dashboard does **not** measure true-positive rate, false-positive rate, or
-overall detection effectiveness. Those require real, labeled investigation
-outcomes. A successful rule execution does not prove coverage or effectiveness,
-and zero alerts are a review opportunity rather than an unhealthy rule.
+| Detection | Telemetry / detection idea | ATT&CK |
+| --- | --- | --- |
+| [Suspicious Linux crontab edit](detections/linux_suspicious_crontab_edit.toml) | auditd process event showing `crontab -e` | T1053.003 — Cron |
+| [AWS IAM access key created](detections/aws_iam_access_key_created.toml) | CloudTrail IAM `CreateAccessKey` management event | T1098 — Account Manipulation |
+| [Scheduled task creation](detections/scheduled_task_creation_via_schtasks.toml) | Sysmon process creation involving `schtasks.exe` | T1053.005 — Scheduled Task |
 
-### Historical snapshot and freshness
+These are investigation signals, not proof of malicious intent. Their usefulness depends on telemetry coverage, field mappings, tuning, and validation in the target environment.
 
-The initial dashboard is generated entirely offline from the saved October 19
-CSV and Markdown health reports. It labels itself as a historical snapshot and
-calculates its age in the browser from the original report timestamp. It must
-never be presented as live data.
+## Engineering workflow
 
-The generated dashboard contains no Elastic endpoint, API key, authorization
-header, or raw alert document. Browser JavaScript uses `textContent` rather
-than `innerHTML` for rule metadata, and the embedded JSON escapes characters
-that could terminate its data script element.
-
-### Generate locally from saved reports
-
-From the repository root in PowerShell:
-
-```powershell
-python development/build_detection_health_dashboard.py --from-legacy-reports --reports-directory reports
+```text
+Host / cloud / network telemetry
+           |
+           v
+   Elastic data streams
+           |
+           v
+   TOML rule definitions in Git
+           |
+           v
+   GitHub Actions validation
+     - TOML field checks
+     - ATT&CK mapping checks
+     - selected offline fixture tests
+           |
+           v
+   Elastic rule sync on main *
+           |
+           v
+   Rule execution & health review
 ```
 
-This converts `reports/detection_health_inventory.csv` and
-`reports/detection_health_summary.md` into
-`reports/detection_health_snapshot.json`, then writes:
+*The [validation and deployment workflow](.github/workflows/elastic_sync.yml) runs checks for relevant pull requests without deploying. Its deployment job is restricted to qualifying pushes to `main`, after the validation job succeeds. A separate [metrics workflow](.github/workflows/metrics.yml) generates repository reports.*
 
-- `reports/detection_health_dashboard.html`
-- `reports/detection_health_dashboard.css`
-- `reports/detection_health_dashboard.js`
+## Repository layout
 
-To rebuild from an existing structured snapshot instead:
+| Path | Purpose |
+| --- | --- |
+| [`detections/`](detections/) | Version-controlled TOML detection definitions |
+| [`development/`](development/) | Rule validation, conversion, Elastic synchronization, and auditd/health utilities |
+| [`tests/`](tests/) | Test harnesses, unit tests, and sample events |
+| [`.github/workflows/`](.github/workflows/) | CI, deployment, and reporting automation |
+| [`metrics/`](metrics/) | Generated rule catalog, summaries, and ATT&CK Navigator layer |
+| [`reports/`](reports/) | Example output from detection-health and auditd reporting |
+| [`docs/`](docs/) | Design notes and implementation plans; plans do not necessarily indicate completed functionality |
 
-```powershell
-python development/build_detection_health_dashboard.py --snapshot reports/detection_health_snapshot.json --reports-directory reports
-```
+## Running local validation
 
-To view locally, use a simple local web server so the browser loads the CSS and
-JavaScript assets reliably:
+**Requirements:** Python 3.11+ and internet access for the ATT&CK reference check.
 
-```powershell
-python -m http.server 8000 --directory reports
-```
-
-Then open [http://localhost:8000/detection_health_dashboard.html](http://localhost:8000/detection_health_dashboard.html).
-Stop the local server with `Ctrl+C` when finished.
-
-### Run local tests
-
-```powershell
-python -m unittest tests/test_detection_health.py tests/test_detection_health_dashboard.py
+```bash
+python -m pip install requests
+python development/validation1.py
+python development/mitre.py
 python tests/run_detection_tests.py
-python tests/test_update_alert.py
 ```
 
-The fixture runner uses temporary Python matchers that approximate selected
-queries. It does not execute Elastic KQL and does not prove live alert
-generation.
+The first script checks TOML rule structure; the second compares mappings with MITRE CTI data. The third tests selected rules against **simulated Python matchers** and positive/negative fixtures; it does **not** parse KQL, run Elastic detections, or validate live log ingestion.
 
-### Live health collection (read-only)
+The repository also contains Python unit tests for certain supporting modules. Deployment requires an authorized Elastic lab environment and its `ELASTIC_KEY` GitHub Actions secret. **Do not enable deployment against a shared or production environment without reviewing configuration and API permissions.**
 
-The existing health collector is read-only and now reads configuration only
-from environment variables. It requires a dedicated, restricted health API key
-and never writes to Elastic:
+## Detection health
 
-```powershell
-$env:ELASTIC_HEALTH_KEY = "<read-only-api-key>"
-$env:ELASTIC_KIBANA_URL = "https://<deployment>.kb.<region>.elastic.cloud"
-$env:ELASTICSEARCH_URL = "https://<deployment>.es.<region>.elastic.cloud"
-$env:ELASTIC_SECURITY_SPACE = "default"
-python development/detection_health.py
-```
+The [sample detection-health report](reports/detection_health_summary.md) covers rule inventory, execution states, retained alert counts, and potential duplicate names. It deliberately separates **a rule running successfully** from **a rule reliably detecting attacker behavior**: zero alerts may reflect legitimate inactivity, missing telemetry, a narrow rule, or other conditions.
 
-Do not put these values in source files, reports, or browser assets. If an
-alert aggregation request is unavailable or incomplete, the collector preserves
-prior complete reports instead of replacing them with zero-alert data.
+## Planned improvements
 
-### Publishing
+- Validate actual KQL behavior against representative Elastic event data rather than relying only on simulated fixture checks.
+- Review placeholder detection names and verify source datasets match index patterns.
+- Expand positive, negative, and edge-case tests to more rules.
+- Move environment-specific URLs and settings into configuration before publishing the repo.
+- Review reports, sample data, commit history, and credentials exposure before considering public visibility.
 
-The repository contains one isolated dashboard workflow,
-`.github/workflows/detection_health_dashboard.yml`. It never calls the
-detection deployment script or receives the `ELASTIC_KEY` deployment secret.
-
-- Pull requests run the dashboard tests and build a credential-free **demo**
-  artifact from the saved historical snapshot. They do not publish it.
-- The scheduled 9 AM `America/New_York` run selects **live** mode, collects a
-  fresh read-only health snapshot, then builds and publishes only the public
-  `index.html`, CSS, and JavaScript bundle.
-- Manual runs expose an explicit `live`/`demo` choice. `demo` preserves the
-  historical timestamp and label; it does not represent current Elastic data.
-- A live collection failure stops the job before a Pages artifact is uploaded,
-  so the previous published dashboard remains in place.
-
-Only the live collection step receives the dedicated read-only health
-credentials. Configure GitHub Pages to deploy from GitHub Actions before
-enabling this workflow on `main`; the detailed setup is intentionally kept out
-of the browser bundle.
+**Maintainer:** [hextrace80](https://github.com/hextrace80)
