@@ -68,7 +68,7 @@ jobs:
       - name: Collect live detection health snapshot
         if: steps.mode.outputs.mode == 'live'
         env:
-          ELASTIC_HEALTH_KEY: ${{ secrets.ELASTIC_HEALTH_KEY }}
+          ELASTIC_HEALTH_KEY: ${{ secrets.ELASTIC_KEY }}
           ELASTIC_KIBANA_URL: ${{ secrets.ELASTIC_KIBANA_URL }}
           ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
           ELASTIC_SECURITY_SPACE: ${{ secrets.ELASTIC_SECURITY_SPACE }}
