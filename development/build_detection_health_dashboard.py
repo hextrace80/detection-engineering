@@ -319,6 +319,38 @@ def load_repository_rules(detections_directory, manifest_path=None):
     return repository_rules
 
 
+def telemetry_display(health_row, deployed):
+    """Present optional aggregate telemetry without inferring historical results."""
+    telemetry = health_row.get("telemetry") if deployed else None
+    if not isinstance(telemetry, dict):
+        return {
+            "status": "NOT_ASSESSED", "assessed_at": None,
+            "freshness_threshold_seconds": None, "patterns": [],
+            "note": "Telemetry was not assessed in this snapshot.",
+        }
+    status = telemetry.get("status")
+    if not isinstance(status, str) or status not in (
+        "FRESH", "STALE", "MISSING", "UNAVAILABLE", "UNKNOWN", "NOT_ASSESSED"
+    ):
+        status = "UNKNOWN"
+    scalar = lambda value: value if value is None or isinstance(value, (str, int, float, bool)) else None
+    pattern_fields = (
+        "index_pattern", "status", "assessed_at", "freshness_threshold_seconds",
+        "timestamp_field", "last_event_timestamp", "recent_event_count", "reason",
+    )
+    patterns = telemetry.get("patterns")
+    return {
+        "status": status,
+        "assessed_at": scalar(telemetry.get("assessed_at")),
+        "freshness_threshold_seconds": scalar(telemetry.get("freshness_threshold_seconds")),
+        "patterns": [
+            {key: scalar(pattern[key]) for key in pattern_fields if key in pattern}
+            for pattern in patterns if isinstance(pattern, dict)
+        ] if isinstance(patterns, list) else [],
+        "note": "",
+    }
+
+
 def display_row(health_row, repository_rule=None, extra_flags=None):
     repository_rule = repository_rule or {}
     deployed = health_row is not None
@@ -342,6 +374,7 @@ def display_row(health_row, repository_rule=None, extra_flags=None):
             "last_execution": health_row.get("execution", {}) if deployed else {},
             "interval": health_row.get("interval") if deployed else None,
         },
+        "telemetry_health": telemetry_display(health_row, deployed),
         "alert_activity": {
             "available": deployed and not bool(health_row.get("alert_error")),
             "count": health_row.get("alert_activity", {}).get("count") if health_row.get("alert_activity") else 0 if deployed and not health_row.get("alert_error") else None,
@@ -422,6 +455,10 @@ def dashboard_model(snapshot, repository_rules):
         "review_sections": {
             "zero_alerts": [row for row in rows if "ZERO_ALERTS_IN_LOOKBACK" in row["review_flags"]],
             "execution_concerns": [row for row in rows if row["operational_health"]["status"] in {"FAILED", "DEGRADED", "STALE"}],
+            "telemetry_concerns": [
+                row for row in rows
+                if row["telemetry_health"]["status"] in {"STALE", "MISSING", "UNAVAILABLE", "UNKNOWN"}
+            ],
             "duplicate_candidates": [
                 [row for row in rows if row["uuid"] in group]
                 for group in snapshot_metrics(snapshot["inventory"])["duplicate_candidates"]
@@ -436,6 +473,7 @@ def dashboard_model(snapshot, repository_rules):
         "filters": {"statuses": sorted({row["operational_health"]["status"] for row in rows}), "severities": severities, "techniques": techniques},
         "limitations": [
             "Operational execution health does not prove detection coverage or effectiveness.",
+            "Telemetry freshness is a configurable ingestion-availability heuristic and does not prove detection effectiveness.",
             "Zero alerts are a review opportunity, not a failure classification.",
             "Fixture matcher status is not a real Elastic KQL execution result.",
             "True-positive and false-positive metrics are not assessed without labeled outcome data.",
@@ -463,14 +501,14 @@ def dashboard_html(model):
     <header class=\"hero\">
       <p class=\"eyebrow\">Detection Engineering Lab</p>
       <h1>Detection Health Dashboard</h1>
-      <p class=\"subtitle\">Operational health, deployment state, alert activity, and available validation evidence.</p>
+      <p class=\"subtitle\">Operational health, telemetry freshness, deployment state, alert activity, and available validation evidence.</p>
       <div id=\"snapshot-status\" class=\"snapshot-status\" aria-live=\"polite\"></div>
     </header>
     <section id=\"summary-cards\" class=\"summary-grid\" aria-label=\"Dashboard summary\"></section>
     <section class=\"panel\">
       <div class=\"section-heading\"><div><p class=\"eyebrow\">Inventory</p><h2>Detection coverage and health</h2></div><p id=\"inventory-count\" class=\"muted\"></p></div>
       <div class=\"controls\"><label>Search<input id=\"search\" type=\"search\" placeholder=\"Name, stable ID, or UUID\"></label><label>Health<select id=\"health-filter\"></select></label><label>Severity<select id=\"severity-filter\"></select></label><label>ATT&amp;CK technique<select id=\"technique-filter\"></select></label></div>
-      <div class=\"table-wrap\"><table><thead><tr><th data-sort=\"name\">Detection</th><th data-sort=\"rule_id\">Stable ID</th><th>ATT&amp;CK</th><th data-sort=\"severity\">Severity</th><th data-sort=\"type\">Type</th><th>Deployment</th><th data-sort=\"status\">Operational health</th><th>Last execution</th><th data-sort=\"alert_count\">Alerts</th><th>Review</th></tr></thead><tbody id=\"inventory-body\"></tbody></table></div>
+      <div class=\"table-wrap\"><table><thead><tr><th data-sort=\"name\">Detection</th><th data-sort=\"rule_id\">Stable ID</th><th>ATT&amp;CK</th><th data-sort=\"severity\">Severity</th><th data-sort=\"type\">Type</th><th>Deployment</th><th data-sort=\"status\">Operational health</th><th>Telemetry</th><th>Last execution</th><th data-sort=\"alert_count\">Alerts</th><th>Review</th></tr></thead><tbody id=\"inventory-body\"></tbody></table></div>
     </section>
     <section class=\"details-layout\"><aside class=\"panel\"><p class=\"eyebrow\">Rule detail</p><div id=\"rule-detail\" class=\"detail-empty\">Select a detection to inspect its independent health dimensions.</div></aside><aside class=\"panel\"><p class=\"eyebrow\">Review queue</p><div id=\"review-sections\"></div></aside></section>
     <section class=\"panel\"><p class=\"eyebrow\">Interpretation</p><h2>What this dashboard does not claim</h2><ul id=\"limitations\" class=\"limitations\"></ul></section>
@@ -526,19 +564,30 @@ DASHBOARD_JS_CONTENT = r"""
   const renderRows = () => {
     const rows = filteredRows(); const body = byId("inventory-body"); clear(body); text(byId("inventory-count"), `${rows.length} of ${model.rows.length} detections`);
     rows.forEach((row) => { const tr = element("tr"); tr.dataset.rule = row.uuid || row.rule_id; const values = [
-      [row.name, row.uuid || "No deployed UUID"], [row.rule_id], [row.techniques.length ? row.techniques.join(", ") : "N/A"], [row.severity], [row.type], [row.deployment.state + (row.deployment.enabled === null ? "" : row.deployment.enabled ? " · enabled" : " · disabled")], [row.operational_health.status], [row.operational_health.last_execution.date || "N/A"], [formatAlert(row)], [row.review_flags.length ? row.review_flags.join(", ") : "None"]
+      [row.name, row.uuid || "No deployed UUID"], [row.rule_id], [row.techniques.length ? row.techniques.join(", ") : "N/A"], [row.severity], [row.type], [row.deployment.state + (row.deployment.enabled === null ? "" : row.deployment.enabled ? " · enabled" : " · disabled")], [row.operational_health.status], [row.telemetry_health.status], [row.operational_health.last_execution.date || "N/A"], [formatAlert(row)], [row.review_flags.length ? row.review_flags.join(", ") : "None"]
     ];
-      values.forEach((parts, index) => { const td = element("td"); if (index === 0) { const name = element("div", "rule-name"); text(name, parts[0]); const sub = element("div", "small"); text(sub, parts[1]); td.append(name, sub); } else if (index === 5 || index === 6) { td.appendChild(badge(parts[0])); } else if (index === 9 && row.review_flags.length) { row.review_flags.forEach((flag) => { const marker = badge(flag); marker.classList.add("flag"); td.appendChild(marker); }); } else { text(td, parts[0]); } tr.appendChild(td); });
+      values.forEach((parts, index) => { const td = element("td"); if (index === 0) { const name = element("div", "rule-name"); text(name, parts[0]); const sub = element("div", "small"); text(sub, parts[1]); td.append(name, sub); } else if (index === 5 || index === 6 || index === 7) { td.appendChild(badge(parts[0])); } else if (index === 10 && row.review_flags.length) { row.review_flags.forEach((flag) => { const marker = badge(flag); marker.classList.add("flag"); td.appendChild(marker); }); } else { text(td, parts[0]); } tr.appendChild(td); });
       tr.addEventListener("click", () => renderDetail(row)); body.appendChild(tr);
     });
   };
-  const renderDetail = (row) => { const target = byId("rule-detail"); clear(target); target.className = ""; const title = element("h2"); text(title, row.name); const grid = element("dl", "detail-grid"); field("Stable rule ID", row.rule_id, grid); field("Elastic UUID", row.uuid, grid); field("Deployment", row.deployment.state, grid); field("Enabled", row.deployment.enabled === null ? "N/A" : row.deployment.enabled ? "Enabled" : "Disabled", grid); field("Operational health", row.operational_health.status, grid); field("Last execution", row.operational_health.last_execution.date, grid); field("Alert activity", formatAlert(row), grid); field("Last alert", row.alert_activity.last_alert, grid); field("MITRE ATT&CK", row.techniques.join(", ") || "N/A", grid); field("Validation", `${row.validation_health.manifest_coverage}; fixture results: ${row.validation_health.offline_fixture_tests}`, grid); field("Effectiveness", `${row.detection_effectiveness.status}: ${row.detection_effectiveness.note}`, grid); field("Review flags", row.review_flags.join(", ") || "None", grid); target.append(title, grid); };
+  const renderDetail = (row) => { const target = byId("rule-detail"); clear(target); target.className = ""; const title = element("h2"); text(title, row.name); const grid = element("dl", "detail-grid"); field("Stable rule ID", row.rule_id, grid); field("Elastic UUID", row.uuid, grid); field("Deployment", row.deployment.state, grid); field("Enabled", row.deployment.enabled === null ? "N/A" : row.deployment.enabled ? "Enabled" : "Disabled", grid); field("Operational health", row.operational_health.status, grid); field("Last execution", row.operational_health.last_execution.date, grid);
+    field("Telemetry status", row.telemetry_health.status, grid);
+    field("Telemetry assessment time", row.telemetry_health.assessed_at, grid);
+    field("Telemetry threshold seconds", row.telemetry_health.freshness_threshold_seconds, grid);
+    const patterns = element("ul", "limitations");
+    row.telemetry_health.patterns.forEach((pattern) => { const line = element("li");
+      text(line, `${pattern.index_pattern ?? "N/A"}: ${pattern.status ?? "UNKNOWN"}; selected field: ${pattern.timestamp_field ?? "N/A"}; latest timestamp: ${pattern.last_event_timestamp ?? "N/A"}; recent count: ${pattern.recent_event_count ?? "N/A"}`);
+      patterns.appendChild(line);
+    });
+    field("Telemetry patterns", row.telemetry_health.patterns.length ? patterns : row.telemetry_health.note || "No per-pattern assessment available.", grid);
+    field("Alert activity", formatAlert(row), grid); field("Last alert", row.alert_activity.last_alert, grid); field("MITRE ATT&CK", row.techniques.join(", ") || "N/A", grid); field("Validation", `${row.validation_health.manifest_coverage}; fixture results: ${row.validation_health.offline_fixture_tests}`, grid); field("Effectiveness", `${row.detection_effectiveness.status}: ${row.detection_effectiveness.note}`, grid); field("Review flags", row.review_flags.join(", ") || "None", grid); target.append(title, grid); };
   const reviewList = (title, items, formatter) => { const wrap = element("section", "review-group"); const heading = element("h3"); text(heading, title); const list = element("ul"); if (!items.length) { const item = element("li"); text(item, "None"); list.appendChild(item); } else { items.forEach((item) => { const line = element("li"); text(line, formatter(item)); list.appendChild(line); }); } wrap.append(heading, list); return wrap; };
   const renderReviews = () => { const target = byId("review-sections"); clear(target); target.append(
     reviewList("Zero alerts in lookback", model.review_sections.zero_alerts, (row) => `${row.name} (${row.rule_id})`),
     reviewList("Failed, degraded, or stale", model.review_sections.execution_concerns, (row) => `${row.name}: ${row.operational_health.status}`),
     reviewList("Potential duplicate names", model.review_sections.duplicate_candidates, (group) => group.map((row) => `${row.name} [${row.uuid}]`).join("; ")),
-    reviewList("Insufficient health data", model.review_sections.insufficient_data, (row) => `${row.name}: ${row.operational_health.status}`)
+    reviewList("Insufficient health data", model.review_sections.insufficient_data, (row) => `${row.name}: ${row.operational_health.status}`),
+    reviewList("Telemetry freshness concerns", model.review_sections.telemetry_concerns, (row) => `${row.name}: ${row.telemetry_health.status}`)
   ); };
   const renderLimitations = () => { const list = byId("limitations"); clear(list); model.limitations.forEach((item) => { const li = element("li"); text(li, item); list.appendChild(li); }); };
   const bind = () => { byId("search").addEventListener("input", (event) => { state.query = event.target.value.toLowerCase().trim(); renderRows(); }); [["health-filter", "health"], ["severity-filter", "severity"], ["technique-filter", "technique"]].forEach(([id, key]) => byId(id).addEventListener("change", (event) => { state[key] = event.target.value; renderRows(); })); document.querySelectorAll("th[data-sort]").forEach((header) => header.addEventListener("click", () => { const next = header.dataset.sort; state.direction = state.sort === next ? -state.direction : 1; state.sort = next; renderRows(); })); };

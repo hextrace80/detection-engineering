@@ -94,7 +94,119 @@ def write_detection(directory, name="Repository rule", rule_id="stable-rule-id",
     return path
 
 
+def telemetry_snapshot(status="STALE"):
+    return {
+        "schema_version": 1,
+        "generated_at": TIMESTAMP,
+        "lookback": "now-30d",
+        "collection": {"source_kind": "elastic_live", "is_live": True},
+        "inventory": [{
+            "name": "Telemetry rule", "rule_id": "stable-rule-id", "uuid": "uuid-1",
+            "enabled": True, "type": "query", "interval": "5m", "status": "HEALTHY",
+            "execution": {"status": "succeeded"},
+            "alert_activity": {"count": 2, "last_alert": TIMESTAMP},
+            "alert_error": None, "review_flags": [],
+            "telemetry": {
+                "status": status, "assessed_at": TIMESTAMP,
+                "freshness_threshold_seconds": 86400,
+                "patterns": [{
+                    "index_pattern": "logs-windows.sysmon_operational-*", "status": status,
+                    "timestamp_field": "event.ingested",
+                    "last_event_timestamp": "2026-10-17T00:00:00Z", "recent_event_count": 0,
+                }],
+            },
+        }],
+    }
+
+
 class DetectionHealthDashboardTests(unittest.TestCase):
+    def test_telemetry_is_preserved_independently_from_execution_and_alerts(self):
+        snapshot = telemetry_snapshot()
+        model = dashboard.dashboard_model(snapshot, [])
+        row = model["rows"][0]
+
+        self.assertEqual(row["telemetry_health"]["status"], "STALE")
+        self.assertEqual(row["telemetry_health"]["assessed_at"], TIMESTAMP)
+        self.assertEqual(row["telemetry_health"]["freshness_threshold_seconds"], 86400)
+        self.assertEqual(row["telemetry_health"]["patterns"], snapshot["inventory"][0]["telemetry"]["patterns"])
+        self.assertEqual(row["operational_health"]["status"], "HEALTHY")
+        self.assertEqual(row["alert_activity"]["count"], 2)
+        self.assertEqual(model["summary"]["statuses"]["HEALTHY"], 1)
+        self.assertEqual(model["summary"]["statuses"]["STALE"], 0)
+        self.assertEqual(model["review_sections"]["execution_concerns"], [])
+        self.assertEqual(model["review_sections"]["telemetry_concerns"], [row])
+
+    def test_telemetry_concern_queue_contains_only_assessed_concerns(self):
+        for status in ("FRESH", "STALE", "MISSING", "UNAVAILABLE", "UNKNOWN", "NOT_ASSESSED"):
+            with self.subTest(status=status):
+                model = dashboard.dashboard_model(telemetry_snapshot(status), [])
+                self.assertEqual(model["rows"][0]["telemetry_health"]["status"], status)
+                self.assertEqual(
+                    bool(model["review_sections"]["telemetry_concerns"]),
+                    status in {"STALE", "MISSING", "UNAVAILABLE", "UNKNOWN"},
+                )
+
+    def test_historical_snapshot_does_not_infer_telemetry(self):
+        snapshot = telemetry_snapshot()
+        snapshot["collection"] = {"source_kind": "legacy_report_snapshot", "is_live": False}
+        del snapshot["inventory"][0]["telemetry"]
+        model = dashboard.dashboard_model(snapshot, [])
+        telemetry = model["rows"][0]["telemetry_health"]
+
+        self.assertEqual(telemetry["status"], "NOT_ASSESSED")
+        self.assertIsNone(telemetry["assessed_at"])
+        self.assertIsNone(telemetry["freshness_threshold_seconds"])
+        self.assertEqual(telemetry["patterns"], [])
+        self.assertIn("not assessed", telemetry["note"])
+        self.assertEqual(model["review_sections"]["telemetry_concerns"], [])
+
+    def test_telemetry_defaults_for_repository_only_and_malformed_optional_data(self):
+        for invalid in (None, [], "STALE"):
+            with self.subTest(invalid=invalid):
+                self.assertEqual(
+                    dashboard.display_row({"telemetry": invalid})["telemetry_health"]["status"],
+                    "NOT_ASSESSED",
+                )
+        self.assertEqual(dashboard.display_row(None)["telemetry_health"]["status"], "NOT_ASSESSED")
+        row = dashboard.display_row({"telemetry": {"status": [], "patterns": [None, "invalid"]}})
+        self.assertEqual(row["telemetry_health"]["status"], "UNKNOWN")
+        self.assertEqual(row["telemetry_health"]["patterns"], [])
+        row = dashboard.display_row({"telemetry": {"patterns": "invalid"}})
+        self.assertEqual(row["telemetry_health"]["patterns"], [])
+
+    def test_telemetry_metadata_is_safely_embedded_and_rendered_as_text(self):
+        snapshot = telemetry_snapshot()
+        payload = '</script><script>alert("telemetry")</script>&'
+        telemetry = snapshot["inventory"][0]["telemetry"]
+        telemetry["assessed_at"] = payload
+        for key in ("index_pattern", "timestamp_field", "last_event_timestamp"):
+            telemetry["patterns"][0][key] = payload
+        model = dashboard.dashboard_model(snapshot, [])
+        html = dashboard.dashboard_html(model)
+        javascript = dashboard.DASHBOARD_JS_CONTENT
+
+        self.assertNotIn(payload, html)
+        embedded = html.split('<script id="dashboard-data" type="application/json">', 1)[1].split("</script>", 1)[0]
+        self.assertNotIn("<", embedded)
+        self.assertNotIn(">", embedded)
+        self.assertNotIn("&", embedded)
+        self.assertEqual(json.loads(embedded)["rows"][0]["telemetry_health"]["patterns"][0]["index_pattern"], payload)
+        self.assertIn("node.textContent =", javascript)
+        self.assertIn("[row.telemetry_health.status]", javascript)
+        self.assertIn('field("Telemetry status",', javascript)
+        self.assertIn('field("Telemetry assessment time",', javascript)
+        self.assertIn('field("Telemetry threshold seconds",', javascript)
+        self.assertIn('field("Telemetry patterns",', javascript)
+        self.assertIn("row.telemetry_health.patterns", javascript)
+        for key in ("index_pattern", "status", "timestamp_field", "last_event_timestamp", "recent_event_count"):
+            self.assertIn(f"pattern.{key}", javascript)
+        self.assertIn('text(line,', javascript)
+        self.assertIn('reviewList("Telemetry freshness concerns", model.review_sections.telemetry_concerns', javascript)
+        self.assertIn("<th>Telemetry</th>", html)
+        self.assertNotIn("innerHTML", javascript)
+        self.assertNotIn(".href", javascript)
+        self.assertTrue(any("configurable ingestion-availability heuristic" in note for note in model["limitations"]))
+
     def test_legacy_reports_convert_to_explicit_historical_snapshot(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory)

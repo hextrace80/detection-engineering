@@ -4,9 +4,10 @@ import csv
 import io
 import json
 import os
+import re
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -19,6 +20,9 @@ MAX_ALERT_BUCKET_PAGES = 10000
 DEFAULT_LOOKBACK = "now-30d"
 DEFAULT_STALE_AFTER_SECONDS = 900
 DEFAULT_STALE_INTERVAL_MULTIPLIER = 3
+DEFAULT_TELEMETRY_FRESHNESS_SECONDS = 86400
+SAFE_INDEX_PATTERN_RE = re.compile(r"^[a-z0-9._*?-]+$")
+TELEMETRY_STATUS_PRECEDENCE = ("UNAVAILABLE", "MISSING", "STALE", "UNKNOWN")
 REPORTS_DIRECTORY = Path(__file__).resolve().parents[1] / "reports"
 INVENTORY_REPORT_NAME = "detection_health_inventory.csv"
 SUMMARY_REPORT_NAME = "detection_health_summary.md"
@@ -59,6 +63,198 @@ def kibana_rules_url(kibana_url, space):
 
 def alert_index_url(elasticsearch_url, space):
     return f"{elasticsearch_url.rstrip('/')}/.alerts-security.alerts-{quote(space, safe='')}/_search"
+
+
+def telemetry_freshness_seconds(environment=os.environ):
+    raw = environment.get("ELASTIC_TELEMETRY_FRESHNESS_SECONDS", str(DEFAULT_TELEMETRY_FRESHNESS_SECONDS))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as error:
+        raise HealthMonitorError("ELASTIC_TELEMETRY_FRESHNESS_SECONDS must be a positive integer") from error
+    if value <= 0:
+        raise HealthMonitorError("ELASTIC_TELEMETRY_FRESHNESS_SECONDS must be a positive integer")
+    telemetry_window_start(datetime.now(timezone.utc), value)
+    return value
+
+
+def telemetry_window_start(assessed_at, threshold_seconds):
+    try:
+        return assessed_at.astimezone(timezone.utc) - timedelta(seconds=threshold_seconds)
+    except (OverflowError, ValueError) as error:
+        raise HealthMonitorError(
+            "ELASTIC_TELEMETRY_FRESHNESS_SECONDS must define a representable UTC assessment window"
+        ) from error
+
+
+def normalize_index_pattern(value):
+    if not isinstance(value, str):
+        return None
+    pattern = value.strip().casefold()
+    if not pattern or pattern in {"*", "_all"} or not SAFE_INDEX_PATTERN_RE.fullmatch(pattern):
+        return None
+    return pattern
+
+
+def telemetry_resolve_url(elasticsearch_url, pattern):
+    return f"{elasticsearch_url.rstrip('/')}/_resolve/index/{quote(pattern, safe='*._-')}"
+
+
+def telemetry_search_url(elasticsearch_url, pattern):
+    return f"{elasticsearch_url.rstrip('/')}/{quote(pattern, safe='*._-')}/_search"
+
+
+def telemetry_aggregation_body(window_start):
+    window_text = generation_timestamp(window_start)
+    return {
+        "size": 0,
+        "track_total_hits": False,
+        "aggs": {
+            "latest_ingested": {"max": {"field": "event.ingested", "format": "strict_date_optional_time"}},
+            "latest_timestamp": {"max": {"field": "@timestamp", "format": "strict_date_optional_time"}},
+            "recent_ingested": {"filter": {"range": {"event.ingested": {"gte": window_text}}}},
+            "recent_timestamp": {"filter": {"range": {"@timestamp": {"gte": window_text}}}},
+        },
+    }
+
+
+def assess_index_pattern(session, elasticsearch_url, headers, pattern, assessed_at, threshold_seconds):
+    """Assess one source using metadata and aggregates, publishing no response details."""
+    pattern = normalize_index_pattern(pattern)
+    assessment = {
+        "index_pattern": pattern,
+        "status": "UNAVAILABLE",
+        "assessed_at": generation_timestamp(assessed_at),
+        "freshness_threshold_seconds": threshold_seconds,
+        "timestamp_field": None,
+        "last_event_timestamp": None,
+        "recent_event_count": None,
+    }
+
+    def result(status, reason):
+        return dict(assessment, status=status, reason=reason)
+
+    if pattern is None:
+        return result("NOT_ASSESSED", "UNSUPPORTED_INDEX_PATTERN")
+
+    window_start = telemetry_window_start(assessed_at, threshold_seconds)
+    try:
+        response = session.get(
+            telemetry_resolve_url(elasticsearch_url, pattern),
+            params={"expand_wildcards": "open", "allow_no_indices": "true", "ignore_unavailable": "true"},
+            headers=headers,
+            timeout=30,
+        )
+    except requests.Timeout:
+        return result("UNAVAILABLE", "RESOLVE_TIMEOUT")
+    except requests.RequestException:
+        return result("UNAVAILABLE", "RESOLVE_REQUEST_FAILED")
+
+    if response.status_code == 403:
+        return result("UNAVAILABLE", "RESOLVE_HTTP_403")
+    try:
+        document = response_json(response, "Telemetry resolution")
+    except HealthMonitorError:
+        return result("UNAVAILABLE", "RESOLVE_INVALID_RESPONSE")
+    if response.status_code != 200:
+        error = document.get("error")
+        if isinstance(error, dict) and error.get("type") == "index_not_found_exception":
+            return result("MISSING", "INDEX_NOT_FOUND")
+        return result("UNAVAILABLE", f"RESOLVE_HTTP_{response.status_code}")
+
+    sources = [document.get(kind) for kind in ("indices", "aliases", "data_streams")]
+    if any(not isinstance(source, list) for source in sources):
+        return result("UNAVAILABLE", "RESOLVE_INVALID_RESPONSE")
+    for source in sources:
+        if any(not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip() for item in source):
+            return result("UNAVAILABLE", "RESOLVE_INVALID_RESPONSE")
+    if not any(sources):
+        return result("MISSING", "NO_RESOLVED_SOURCE")
+
+    try:
+        response = session.post(
+            telemetry_search_url(elasticsearch_url, pattern),
+            json=telemetry_aggregation_body(window_start),
+            headers=headers,
+            timeout=30,
+        )
+    except requests.Timeout:
+        return result("UNAVAILABLE", "SEARCH_TIMEOUT")
+    except requests.RequestException:
+        return result("UNAVAILABLE", "SEARCH_REQUEST_FAILED")
+    if response.status_code != 200:
+        return result("UNAVAILABLE", f"SEARCH_HTTP_{response.status_code}")
+    try:
+        document = response_json(response, "Telemetry aggregation")
+    except HealthMonitorError:
+        return result("UNAVAILABLE", "SEARCH_INVALID_RESPONSE")
+    if document.get("timed_out") is not False:
+        return result("UNAVAILABLE", "SEARCH_TIMEOUT")
+    shards = document.get("_shards")
+    if not isinstance(shards, dict) or type(shards.get("failed")) is not int or shards["failed"] < 0:
+        return result("UNAVAILABLE", "SEARCH_INVALID_RESPONSE")
+    if shards["failed"] > 0:
+        return result("UNAVAILABLE", "SEARCH_SHARD_FAILURE")
+    aggregations = document.get("aggregations")
+    names = ("latest_ingested", "latest_timestamp", "recent_ingested", "recent_timestamp")
+    if not isinstance(aggregations, dict) or any(not isinstance(aggregations.get(name), dict) for name in names):
+        return result("UNAVAILABLE", "SEARCH_INVALID_RESPONSE")
+    for name in ("recent_ingested", "recent_timestamp"):
+        count = aggregations[name].get("doc_count")
+        if type(count) is not int or count < 0:
+            return result("UNAVAILABLE", "SEARCH_INVALID_RESPONSE")
+
+    # Fall back as a pair: the chosen timestamp field always owns the count.
+    selected = None
+    for suffix, field in (("ingested", "event.ingested"), ("timestamp", "@timestamp")):
+        candidate = parse_timestamp(aggregations[f"latest_{suffix}"].get("value_as_string"))
+        assessment["timestamp_field"] = field
+        assessment["recent_event_count"] = aggregations[f"recent_{suffix}"]["doc_count"]
+        if candidate is not None and candidate.tzinfo is not None:
+            try:
+                selected = candidate.astimezone(timezone.utc)
+            except (OverflowError, ValueError):
+                continue
+            break
+    if selected is None:
+        return result("UNKNOWN", "NO_VALID_TIMESTAMP")
+    assessment["last_event_timestamp"] = generation_timestamp(selected)
+    assessment["status"] = "FRESH" if selected >= window_start else "STALE"
+    return assessment
+
+
+def telemetry_rollup(patterns, assessed_at, threshold_seconds):
+    assessment = {
+        "status": "NOT_ASSESSED",
+        "assessed_at": generation_timestamp(assessed_at),
+        "freshness_threshold_seconds": threshold_seconds,
+        "patterns": patterns,
+    }
+    for status in TELEMETRY_STATUS_PRECEDENCE:
+        if any(pattern["status"] == status for pattern in patterns):
+            return dict(assessment, status=status)
+    if patterns and all(pattern["status"] == "FRESH" for pattern in patterns):
+        return dict(assessment, status="FRESH")
+    return assessment
+
+
+def collect_rule_telemetry(session, elasticsearch_url, headers, rules, assessed_at, threshold_seconds):
+    """Resolve and assess each safe source once per run, retaining declared order."""
+    cache = {}
+    telemetry = {}
+    assessed_text = generation_timestamp(assessed_at)
+    for rule in rules:
+        patterns = []
+        declared = rule.get("index")
+        for value in declared if isinstance(declared, list) else []:
+            pattern = normalize_index_pattern(value)
+            key = (pattern, threshold_seconds, assessed_text)
+            if key not in cache:
+                cache[key] = assess_index_pattern(
+                    session, elasticsearch_url, headers, pattern, assessed_at, threshold_seconds
+                )
+            patterns.append(dict(cache[key]))
+        telemetry[rule["id"]] = telemetry_rollup(patterns, assessed_at, threshold_seconds)
+    return telemetry
 
 
 def get_rules(session, kibana_url, space, headers):
@@ -248,7 +444,7 @@ def classify_rule(rule, now, default_stale_after, interval_multiplier):
     return "HEALTHY"
 
 
-def build_rows(rules, activity, alert_error, now, default_stale_after, interval_multiplier):
+def build_rows(rules, activity, alert_error, now, default_stale_after, interval_multiplier, telemetry_by_rule=None):
     rows = []
     for rule in rules:
         rule_uuid = rule.get("id")
@@ -265,6 +461,12 @@ def build_rows(rules, activity, alert_error, now, default_stale_after, interval_
             "alert_activity": rule_activity,
             "alert_error": alert_error,
         }
+        row["telemetry"] = (telemetry_by_rule or {}).get(rule_uuid, {
+            "status": "NOT_ASSESSED",
+            "assessed_at": None,
+            "freshness_threshold_seconds": None,
+            "patterns": [],
+        })
         row["review_flags"] = review_flags(row)
         rows.append(row)
     return rows
@@ -281,6 +483,9 @@ def review_flags(row):
         flags.append("ALERT_ACTIVITY_UNAVAILABLE")
     elif row["enabled"] and row["alert_activity"] is None:
         flags.append("ZERO_ALERTS_IN_LOOKBACK")
+    telemetry_status = row.get("telemetry", {}).get("status")
+    if telemetry_status in TELEMETRY_STATUS_PRECEDENCE:
+        flags.append(f"TELEMETRY_{telemetry_status}")
     return flags
 
 
@@ -513,6 +718,7 @@ def markdown_summary(rows, lookback, generated_at):
             "This report lists deployed Elastic Security rules from Kibana and aggregates alert documents by Elastic internal rule UUID over the selected lookback.",
             "A successful execution means the rule most recently ran successfully; it does not prove that the rule searched complete telemetry, matched intended behavior, or detected every relevant event.",
             "Recorded alert activity reflects alerts retained and returned for the selected lookback. Zero alerts do not establish that a rule has never alerted or that it is ineffective.",
+            "Telemetry freshness is a configurable ingestion-availability heuristic; investigate telemetry concerns independently of rule execution and alert counts. It does not prove detection effectiveness.",
             "Potential duplicate names are normalized for comparison and remain investigation candidates because distinct rules can intentionally share a name.",
         ]
     )
@@ -618,6 +824,7 @@ def required_environment():
         "lookback": os.environ.get("ELASTIC_ALERT_LOOKBACK", DEFAULT_LOOKBACK),
         "stale_after": stale_after,
         "interval_multiplier": interval_multiplier,
+        "telemetry_freshness_seconds": telemetry_freshness_seconds(),
     }
 
 
@@ -645,6 +852,16 @@ def main():
         alert_error = str(error)
 
     generated_at = datetime.now(timezone.utc)
+    telemetry_by_rule = None
+    if not alert_error:
+        telemetry_by_rule = collect_rule_telemetry(
+            session,
+            config["elasticsearch_url"],
+            headers,
+            rules,
+            generated_at,
+            config["telemetry_freshness_seconds"],
+        )
     rows = build_rows(
         rules,
         alert_activity,
@@ -652,6 +869,7 @@ def main():
         generated_at,
         config["stale_after"],
         config["interval_multiplier"],
+        telemetry_by_rule,
     )
     print_report(rows, config["lookback"], alert_error)
     if alert_error:
