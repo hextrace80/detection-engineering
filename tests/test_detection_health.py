@@ -3,10 +3,13 @@
 import csv
 import importlib.util
 import io
+import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -86,6 +89,20 @@ class DetectionHealthTests(unittest.TestCase):
 
                 rows = detection_health.build_rows([document], {}, None, NOW, 900, 3)
                 self.assertEqual(rows[0]["execution"], {})
+
+    def test_required_environment_uses_caller_configuration_without_overwriting_it(self):
+        configured = {
+            "ELASTIC_HEALTH_KEY": "read-only-test-key",
+            "ELASTIC_KIBANA_URL": "https://kibana.example.test",
+            "ELASTICSEARCH_URL": "https://elasticsearch.example.test",
+            "ELASTIC_SECURITY_SPACE": "security-lab",
+        }
+        with patch.dict(os.environ, configured, clear=True):
+            settings = detection_health.required_environment()
+
+        self.assertEqual(settings["kibana_url"], "https://kibana.example.test")
+        self.assertEqual(settings["elasticsearch_url"], "https://elasticsearch.example.test")
+        self.assertEqual(settings["space"], "security-lab")
 
     def test_unrecognized_execution_status_is_unknown(self):
         self.assertEqual(self.classify(rule(execution_status="running")), "UNKNOWN")
@@ -219,7 +236,20 @@ class DetectionHealthTests(unittest.TestCase):
             self.assertEqual(inventory.read_text(encoding="utf-8"), "complete inventory")
             self.assertEqual(summary.read_text(encoding="utf-8"), "complete summary")
 
-    def test_audit_reports_write_csv_and_markdown_from_one_snapshot(self):
+    def test_health_snapshot_preserves_metrics_and_unavailable_alerts(self):
+        rows = detection_health.build_rows([rule()], None, "HTTP 500", NOW, 900, 3)
+
+        snapshot = detection_health.health_snapshot(rows, "now-30d", NOW)
+
+        self.assertEqual(snapshot["schema_version"], 1)
+        self.assertEqual(snapshot["generated_at"], "2026-10-18T12:00:00Z")
+        self.assertEqual(snapshot["lookback"], "now-30d")
+        self.assertFalse(snapshot["collection"]["alert_activity_available"])
+        self.assertEqual(snapshot["collection"]["alert_activity_status"], "unavailable")
+        self.assertIsNone(snapshot["metrics"]["total_alerts"])
+        self.assertEqual(snapshot["inventory"][0]["alert_error"], "HTTP 500")
+
+    def test_audit_reports_write_csv_markdown_and_json_from_one_snapshot(self):
         document = rule()
         document.update({"name": "Audit rule", "type": "query"})
         rows = detection_health.build_rows(
@@ -231,14 +261,19 @@ class DetectionHealthTests(unittest.TestCase):
             3,
         )
         with tempfile.TemporaryDirectory() as temporary_directory:
-            inventory, summary = detection_health.write_audit_reports(rows, "now-30d", NOW, Path(temporary_directory))
+            inventory, summary, snapshot = detection_health.write_audit_reports(
+                rows, "now-30d", NOW, Path(temporary_directory)
+            )
             inventory_record = next(csv.DictReader(io.StringIO(inventory.read_text(encoding="utf-8"))))
             summary_text = summary.read_text(encoding="utf-8")
+            snapshot_document = json.loads(snapshot.read_text(encoding="utf-8"))
 
         self.assertEqual(inventory_record["Report generation timestamp"], "2026-10-18T12:00:00Z")
         self.assertEqual(inventory_record["Alert count for selected lookback"], "2")
         self.assertIn("Generated: 2026-10-18T12:00:00Z", summary_text)
         self.assertIn("Total alerts in selected lookback: **2**.", summary_text)
+        self.assertEqual(snapshot_document["generated_at"], "2026-10-18T12:00:00Z")
+        self.assertEqual(snapshot_document["inventory"][0]["uuid"], "rule-uuid")
 
 
 if __name__ == "__main__":

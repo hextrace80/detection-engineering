@@ -1,0 +1,571 @@
+{
+  "collection": {
+    "alert_activity_available": true,
+    "alert_activity_status": "available",
+    "is_live": false,
+    "note": "Converted offline from existing CSV and Markdown health reports.",
+    "source_kind": "legacy_report_snapshot"
+  },
+  "duplicate_candidates": [
+    [
+      "c4eee38e-d815-4cdb-88c1-e5e653ddc6a1",
+      "cd5ff43c-8d9b-4a9a-bcfd-191a076eee36"
+    ],
+    [
+      "0caa8056-707b-40e4-ae8e-d75a14fb04c4",
+      "596f451d-c0af-4bbf-a77d-a18f012bfc73",
+      "6902657e-45ea-4df6-8342-a009a953267e"
+    ],
+    [
+      "6380419e-81af-45a0-991f-51f19c7df05b",
+      "c722c41d-7d90-4db2-8975-d23ccd5db5d8"
+    ],
+    [
+      "6a92daec-f19e-42e2-bf4f-06ac46af42d4",
+      "c34afae9-a1ec-4741-871e-577d00fea8ab"
+    ],
+    [
+      "84704361-66a7-48d8-9a56-2a397e1e4082",
+      "af241a90-7f2c-4296-8cd7-8c64f464ae5d"
+    ],
+    [
+      "6b41e238-72e6-4fb0-bcd5-8de58773f39f",
+      "e24b1105-1552-4928-96b3-9fbd9ff31d57"
+    ]
+  ],
+  "generated_at": "2026-10-19T03:19:56.004046Z",
+  "inventory": [
+    {
+      "alert_activity": {
+        "count": 1,
+        "last_alert": "2026-10-17T02:12:34.885Z"
+      },
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:17:35.734Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "AWS IAM Access Key Created",
+      "review_flags": [],
+      "rule_id": "4a0fce7d-c4a7-4c69-89e5-902f1a3fe276",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "9785b42e-835b-4c67-adfa-741cfee2fabf"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:34.763Z",
+        "status": "succeeded"
+      },
+      "interval": "2m",
+      "name": "Bat files observed in HTTP traffic",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "e7791f72-e315-4cda-bc9a-b90d6f1f2851",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "d090a8d4-4fb8-4ed5-8696-fe0d2b518651"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:17:50.725Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Bat files observed in HTTP Traffic on Unusual Port ",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000001",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "e21e7822-1e6f-4a9e-85f0-1ef795a7148a"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:15:23.869Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Data Archive for Potential Exfil",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000004",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "c4eee38e-d815-4cdb-88c1-e5e653ddc6a1"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:17:49.748Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Data Archive for Potential Exfil",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000002",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "cd5ff43c-8d9b-4a9a-bcfd-191a076eee36"
+    },
+    {
+      "alert_activity": {
+        "count": 43,
+        "last_alert": "2026-10-16T19:58:42.216Z"
+      },
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:40.784Z",
+        "status": "succeeded"
+      },
+      "interval": "1m",
+      "name": "Endpoint Security (Elastic Defend)",
+      "review_flags": [],
+      "rule_id": "9a1a2dae-0b5f-4c3d-8305-a268d404c306",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "9a25b826-e6ce-47db-a9dc-5c47b3fed596"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:17:44.714Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Excessive Web Traffic",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000005",
+      "status": "HEALTHY",
+      "type": "threshold",
+      "uuid": "0caa8056-707b-40e4-ae8e-d75a14fb04c4"
+    },
+    {
+      "alert_activity": {
+        "count": 1,
+        "last_alert": "2026-10-11T22:18:11.223Z"
+      },
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:32.896Z",
+        "status": "succeeded"
+      },
+      "interval": "2m",
+      "name": "Excessive web traffic",
+      "review_flags": [],
+      "rule_id": "7f2ba9d1-0bad-42b3-8634-f0f97d70444e",
+      "status": "HEALTHY",
+      "type": "threshold",
+      "uuid": "596f451d-c0af-4bbf-a77d-a18f012bfc73"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:18:23.880Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Excessive Web Traffic",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000055",
+      "status": "HEALTHY",
+      "type": "threshold",
+      "uuid": "6902657e-45ea-4df6-8342-a009a953267e"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T02:59:22.645Z",
+        "status": "succeeded"
+      },
+      "interval": "1h",
+      "name": "John Ndukwe Test Rule",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "process_started_by_ms_office_program",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "613147c9-a8dd-46aa-b313-4ee96831f0ce"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": false,
+      "execution": {},
+      "interval": "5m",
+      "name": "MsBuild Making Network Connections",
+      "review_flags": [
+        "DISABLED"
+      ],
+      "rule_id": "0e79980b-4250-4a50-a509-69294c14e84b",
+      "status": "DISABLED",
+      "type": "eql",
+      "uuid": "b9a6435d-1df9-4c2e-bbbe-f5ac47e6a673"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:50.737Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "new alert",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000013",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "d140e260-8475-4c55-9fd0-754c2d3f373b"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:28.759Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Potential MSF PowerShell Payload Observed",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000045",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "6380419e-81af-45a0-991f-51f19c7df05b"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:34.763Z",
+        "status": "succeeded"
+      },
+      "interval": "2m",
+      "name": "Potential MSF PowerShell Payload Observed",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "ffea60b4-b6c2-4996-8597-67516d6bab65",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "c722c41d-7d90-4db2-8975-d23ccd5db5d8"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:32.896Z",
+        "status": "succeeded"
+      },
+      "interval": "2m",
+      "name": "Powershell execution via BAT file",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "0227b781-f169-498f-89a3-daab5f2da6aa",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "95c7ccb5-7274-4c7a-a0a1-10b74eb35407"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:17:43.752Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "PowerShell Invoke-WebRequest Downloading .BAT File",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000007",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "1453bcc4-40ab-4956-8bd8-9943d53bb942"
+    },
+    {
+      "alert_activity": {
+        "count": 2,
+        "last_alert": "2026-10-12T03:48:31.040Z"
+      },
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:32.895Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "PowerShell Invoke-webRequest Downloading BAT file",
+      "review_flags": [],
+      "rule_id": "c44b3836-992e-4ce9-ad94-d4ae1d1a846a",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "9286d464-2285-4c0b-ac24-f4eb5d6c783d"
+    },
+    {
+      "alert_activity": {
+        "count": 4,
+        "last_alert": "2026-10-16T20:29:39.203Z"
+      },
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:38.893Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Scheduled Task Creation via Schtasks",
+      "review_flags": [],
+      "rule_id": "bb3dd945-09b1-45a9-ab73-88d5d3e64e99",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "011594fb-3521-4284-8734-318305dc8e10"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:40.783Z",
+        "status": "succeeded"
+      },
+      "interval": "1m",
+      "name": "Suspicious File added to registry",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "92bcbfbb-ad2b-4de3-88fe-1e59b4f71577",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "6a92daec-f19e-42e2-bf4f-06ac46af42d4"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:17:55.751Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Suspicious File Added to Registry",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000008",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "c34afae9-a1ec-4741-871e-577d00fea8ab"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:40.784Z",
+        "status": "succeeded"
+      },
+      "interval": "1m",
+      "name": "Suspicious file written to temp",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "212c080a-e36d-45d6-8b4c-933f0d6d3eee",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "8af23407-7b18-4a1b-b035-f2062b47c147"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:17:52.746Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Suspicious File Written to Temp Directory",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000009",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "2a36ab21-8e53-42e4-82c3-64359514020b"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:17:16.738Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Test Alert",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000054",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "84704361-66a7-48d8-9a56-2a397e1e4082"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:26.877Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Test Alert",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000024",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "af241a90-7f2c-4296-8cd7-8c64f464ae5d"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:17:58.754Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Web scanner activity -nmap and Nikto",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000003",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "6b41e238-72e6-4fb0-bcd5-8de58773f39f"
+    },
+    {
+      "alert_activity": null,
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:17:46.747Z",
+        "status": "succeeded"
+      },
+      "interval": "5m",
+      "name": "Web scanner activity -nmap and Nikto",
+      "review_flags": [
+        "ZERO_ALERTS_IN_LOOKBACK"
+      ],
+      "rule_id": "00000000-0000-0000-0000-000000000006",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "e24b1105-1552-4928-96b3-9fbd9ff31d57"
+    },
+    {
+      "alert_activity": {
+        "count": 1,
+        "last_alert": "2026-10-11T22:11:26.143Z"
+      },
+      "alert_error": null,
+      "enabled": true,
+      "execution": {
+        "date": "2026-10-19T03:19:34.763Z",
+        "status": "succeeded"
+      },
+      "interval": "2m",
+      "name": "Web Scanner activity, Nmap and Nikto",
+      "review_flags": [],
+      "rule_id": "68887214-c149-4b77-ae1e-97525731b275",
+      "status": "HEALTHY",
+      "type": "query",
+      "uuid": "80fb70a7-f40f-4ea6-8094-725042030a27"
+    }
+  ],
+  "lookback": "now-30d",
+  "metrics": {
+    "alert_available": true,
+    "alerting_enabled_count": 6,
+    "disabled": 1,
+    "duplicate_candidates": [
+      [
+        "c4eee38e-d815-4cdb-88c1-e5e653ddc6a1",
+        "cd5ff43c-8d9b-4a9a-bcfd-191a076eee36"
+      ],
+      [
+        "0caa8056-707b-40e4-ae8e-d75a14fb04c4",
+        "596f451d-c0af-4bbf-a77d-a18f012bfc73",
+        "6902657e-45ea-4df6-8342-a009a953267e"
+      ],
+      [
+        "6380419e-81af-45a0-991f-51f19c7df05b",
+        "c722c41d-7d90-4db2-8975-d23ccd5db5d8"
+      ],
+      [
+        "6a92daec-f19e-42e2-bf4f-06ac46af42d4",
+        "c34afae9-a1ec-4741-871e-577d00fea8ab"
+      ],
+      [
+        "84704361-66a7-48d8-9a56-2a397e1e4082",
+        "af241a90-7f2c-4296-8cd7-8c64f464ae5d"
+      ],
+      [
+        "6b41e238-72e6-4fb0-bcd5-8de58773f39f",
+        "e24b1105-1552-4928-96b3-9fbd9ff31d57"
+      ]
+    ],
+    "enabled": 26,
+    "healthy_enabled": 26,
+    "status_counts": {
+      "DISABLED": 1,
+      "HEALTHY": 26
+    },
+    "total": 27,
+    "total_alerts": 52,
+    "zero_alert_enabled_count": 20
+  },
+  "schema_version": 1
+}
