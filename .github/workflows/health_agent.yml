@@ -3,10 +3,29 @@ name: Investigate Detection Health
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "single investigates one UUID; flagged investigates health/telemetry concerns; all is explicit."
+        required: true
+        default: flagged
+        type: choice
+        options:
+          - single
+          - flagged
+          - all
       rule_uuid:
-        description: "Optional deployed Elastic rule UUID to investigate; leave blank to select one flagged rule."
+        description: "Required only for single mode."
         required: false
         type: string
+      max_detections:
+        description: "Maximum selected detections."
+        required: true
+        default: "10"
+        type: string
+      dry_run:
+        description: "Select detections without calling OpenAI."
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -14,6 +33,10 @@ permissions:
 jobs:
   investigate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: health-agent-investigation
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,21 +57,29 @@ jobs:
           ELASTIC_SECURITY_SPACE: ${{ vars.ELASTIC_SECURITY_SPACE }}
         run: python development/detection_health.py
 
-      - name: Run one bounded AI investigation
+      - name: Run bounded AI investigations
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
         shell: bash
         run: |
-          args=(--snapshot reports/detection_health_snapshot.json --output "$RUNNER_TEMP/agent_findings.json")
-          if [[ -n "${{ inputs.rule_uuid }}" ]]; then
+          args=(--snapshot reports/detection_health_snapshot.json --output "$RUNNER_TEMP/agent_findings.json" --mode "${{ inputs.mode }}" --max-detections "${{ inputs.max_detections }}")
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          if [[ "${{ inputs.mode }}" == "single" ]]; then
+            if [[ -z "${{ inputs.rule_uuid }}" ]]; then
+              echo "rule_uuid is required for single mode" >&2
+              exit 1
+            fi
             args+=(--rule-uuid "${{ inputs.rule_uuid }}")
           fi
           python development/health_agent.py "${args[@]}"
 
       - name: Upload investigation finding
+        if: inputs.dry_run != true
         uses: actions/upload-artifact@v4
         with:
-          name: detection-health-investigation
+          name: detection-health-investigations
           path: ${{ runner.temp }}/agent_findings.json
           if-no-files-found: error

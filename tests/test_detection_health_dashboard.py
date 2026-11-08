@@ -120,6 +120,31 @@ def telemetry_snapshot(status="STALE"):
 
 
 class DetectionHealthDashboardTests(unittest.TestCase):
+    def test_dashboard_displays_only_approved_ai_findings_by_uuid(self):
+        snapshot = telemetry_snapshot()
+        approved = [{
+            "rule_uuid": "uuid-1", "rule_name": "Different name", "reviewed": True,
+            "reviewed_at": TIMESTAMP, "investigated_at": TIMESTAMP,
+            "reviewed_summary": "Human-approved summary", "potential_causes": ["Cause"],
+            "uncertainties": ["Unknown"], "recommended_action": "Review",
+        }]
+        model = dashboard.dashboard_model(snapshot, [], approved)
+        row = model["rows"][0]
+        self.assertEqual(row["investigation"]["status"], "Reviewed finding")
+        self.assertEqual(row["investigation"]["reviewed_summary"], "Human-approved summary")
+        self.assertEqual(model["summary"]["ai_investigated"], 1)
+        self.assertEqual(model["review_sections"]["ai_findings"], [row])
+        self.assertIn("AI investigation", dashboard.DASHBOARD_JS_CONTENT)
+        self.assertNotIn("innerHTML", dashboard.DASHBOARD_JS_CONTENT)
+
+    def test_rejects_private_ai_fields_and_uninvestigated_rows_remain_explicit(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "approved.json"
+            path.write_text(json.dumps({"findings": [{"rule_uuid": "uuid", "reviewed": True, "evidence": []}]}), encoding="utf-8")
+            with self.assertRaisesRegex(dashboard.DashboardError, "private"):
+                dashboard.load_approved_findings(path)
+        row = dashboard.dashboard_model(telemetry_snapshot(), [])["rows"][0]
+        self.assertEqual(row["investigation"]["status"], "Not investigated")
     def test_telemetry_is_preserved_independently_from_execution_and_alerts(self):
         snapshot = telemetry_snapshot()
         model = dashboard.dashboard_model(snapshot, [])

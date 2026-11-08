@@ -202,7 +202,7 @@ class HealthAgentTests(unittest.TestCase):
                         health_agent.run_investigation(snapshot_path, Path(temporary) / "findings.json", client=FakeClient(responses), detections_directory=detections)
                     self.assertNotIn("api key", str(context.exception))
             tools = health_agent.EvidenceTools(document, health_agent.select_rule(document), detections)
-            self.assertEqual(tools.get_telemetry_evidence(RULE_UUID)["status"], "UNAVAILABLE")
+            self.assertEqual(tools.get_telemetry_evidence(RULE_UUID)["status"], "DEPENDENCY_UNVERIFIED")
 
     def test_reports_safe_openai_http_error_categories(self):
         cases = (
@@ -247,6 +247,50 @@ class HealthAgentTests(unittest.TestCase):
         self.assertIn("actions/upload-artifact", workflow)
         self.assertNotIn("deploy-pages", workflow)
         self.assertNotIn("update_alert.py", workflow)
+
+    def test_batch_selection_modes_deduplicate_and_dry_run_without_openai(self):
+        document = snapshot()
+        healthy = dict(document["inventory"][0], uuid="22222222-2222-2222-2222-222222222222", review_flags=[])
+        duplicate = dict(document["inventory"][0])
+        document["inventory"].extend([healthy, duplicate])
+        self.assertEqual([row["uuid"] for row in health_agent.select_rules(document, "flagged")], [RULE_UUID])
+        self.assertEqual([row["uuid"] for row in health_agent.select_rules(document, "all")], [RULE_UUID, healthy["uuid"]])
+        with tempfile.TemporaryDirectory() as temporary:
+            snapshot_path, _ = self.write_fixture_files(temporary, document)
+            report = health_agent.run_batch(snapshot_path, Path(temporary) / "batch.json", mode="flagged", dry_run=True)
+        self.assertTrue(report["dry_run"])
+        self.assertEqual(report["selected_rule_uuids"], [RULE_UUID])
+        with self.assertRaisesRegex(health_agent.HealthAgentError, "requires"):
+            health_agent.select_rules(document, "single")
+
+    def test_batch_survives_failure_resumes_successes_and_limits_requests(self):
+        document = snapshot()
+        second = dict(document["inventory"][0], uuid="22222222-2222-2222-2222-222222222222", rule_id="second-rule", name="Second", review_flags=["TELEMETRY_STALE"])
+        document["inventory"].append(second)
+        with tempfile.TemporaryDirectory() as temporary:
+            snapshot_path, detections = self.write_fixture_files(temporary, document)
+            (detections / "second.toml").write_text("[rule]\nrule_id='second-rule'\nname='Second'\nindex=['logs-example-*']\nquery='x'\n", encoding="utf-8")
+            output = Path(temporary) / "batch.json"
+            client = FakeClient([
+                FakeResponse([call("get_health_evidence", "call-1")]), FakeResponse(output_text=final_json()),
+                RuntimeError("failure"),
+            ])
+            report = health_agent.run_batch(snapshot_path, output, mode="flagged", client=client, detections_directory=detections)
+            self.assertEqual(len(report["findings"]), 1)
+            self.assertEqual(len(report["errors"]), 1)
+            resumed = health_agent.run_batch(snapshot_path, output, mode="flagged", resume=True, client=FakeClient([FakeResponse([call("get_health_evidence", "call-2", second["uuid"])]), FakeResponse(output_text=final_json())]), detections_directory=detections)
+        self.assertEqual({item["rule_id"] for item in resumed["findings"]}, {RULE_UUID, second["uuid"]})
+
+    def test_publication_requires_explicit_review_and_removes_private_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            batch = directory / "batch.json"
+            batch.write_text(json.dumps({"findings": [{"rule_id": RULE_UUID, "rule_name": "Rule", "requires_human_review": True, "evidence": [{"secret": "private"}], "potential_causes": ["Cause"], "uncertainties": ["Unknown"], "recommended_action": "Review", "private_run_summary": {"completed_at": "2026-01-01T00:00:00Z"}}], "errors": []}), encoding="utf-8")
+            approved = health_agent.prepare_publication(batch, RULE_UUID, "Human-reviewed summary", directory / "approved.json")
+            stored = json.loads((directory / "approved.json").read_text(encoding="utf-8"))
+        self.assertTrue(approved["reviewed"])
+        self.assertNotIn("evidence", json.dumps(stored))
+        self.assertEqual(stored["findings"][0]["rule_uuid"], RULE_UUID)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPORTS_DIRECTORY = REPOSITORY_ROOT / "reports"
 DEFAULT_DETECTIONS_DIRECTORY = REPOSITORY_ROOT / "detections"
 SNAPSHOT_FILENAME = "detection_health_snapshot.json"
+APPROVED_FINDINGS_FILENAME = "approved_ai_findings.json"
 DASHBOARD_HTML = "detection_health_dashboard.html"
 DASHBOARD_CSS = "detection_health_dashboard.css"
 DASHBOARD_JS = "detection_health_dashboard.js"
@@ -351,7 +352,30 @@ def telemetry_display(health_row, deployed):
     }
 
 
-def display_row(health_row, repository_rule=None, extra_flags=None):
+def load_approved_findings(path):
+    """Load only explicitly reviewed, sanitized findings; absent means no public AI data."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise DashboardError("Approved AI findings file is invalid") from error
+    findings = document.get("findings") if isinstance(document, dict) else None
+    if not isinstance(findings, list):
+        raise DashboardError("Approved AI findings file is invalid")
+    allowed = {"rule_uuid", "rule_name", "reviewed", "reviewed_at", "investigated_at", "reviewed_summary", "potential_causes", "uncertainties", "recommended_action"}
+    clean = []
+    for finding in findings:
+        if not isinstance(finding, dict) or not finding.get("reviewed") is True or not isinstance(finding.get("rule_uuid"), str):
+            raise DashboardError("Approved AI finding is invalid")
+        if set(finding) - allowed:
+            raise DashboardError("Approved AI finding contains private fields")
+        clean.append({key: finding.get(key) for key in allowed if key in finding})
+    return clean
+
+
+def display_row(health_row, repository_rule=None, extra_flags=None, approved_finding=None):
     repository_rule = repository_rule or {}
     deployed = health_row is not None
     health_row = health_row or {}
@@ -389,6 +413,11 @@ def display_row(health_row, repository_rule=None, extra_flags=None):
             "status": "Not assessed",
             "note": "True-positive and false-positive metrics require labeled outcome data and are not collected by this dashboard.",
         },
+        "investigation": approved_finding or {
+            "status": "Not investigated",
+            "reviewed": False,
+            "note": "No reviewed AI finding is published for this deployed UUID.",
+        },
         "review_flags": (
             (health_row.get("review_flags", []) if deployed else ["NOT_DEPLOYED_IN_SNAPSHOT"])
             + list(extra_flags or [])
@@ -396,7 +425,8 @@ def display_row(health_row, repository_rule=None, extra_flags=None):
     }
 
 
-def correlate_rules(repository_rules, health_rows):
+def correlate_rules(repository_rules, health_rows, approved_by_uuid=None):
+    approved_by_uuid = approved_by_uuid or {}
     repository_by_id = defaultdict(list)
     for rule in repository_rules:
         repository_by_id[rule["rule_id"]].append(rule)
@@ -406,11 +436,11 @@ def correlate_rules(repository_rules, health_rows):
     for health_row in health_rows:
         candidates = repository_by_id.get(health_row["rule_id"], [])
         if len(candidates) == 1:
-            matched.append(display_row(health_row, candidates[0]))
+            matched.append(display_row(health_row, candidates[0], approved_finding=approved_by_uuid.get(health_row.get("uuid"))))
             safely_matched_repository_ids.add(candidates[0]["rule_id"])
         else:
             flags = ["AMBIGUOUS_REPOSITORY_STABLE_ID"] if candidates else []
-            elastic_only.append(display_row(health_row, extra_flags=flags))
+            elastic_only.append(display_row(health_row, extra_flags=flags, approved_finding=approved_by_uuid.get(health_row.get("uuid"))))
     repository_only = [
         display_row(
             None,
@@ -425,8 +455,9 @@ def correlate_rules(repository_rules, health_rows):
     return {"matched": matched, "repository_only": repository_only, "elastic_only": elastic_only}
 
 
-def dashboard_model(snapshot, repository_rules):
-    correlation = correlate_rules(repository_rules, snapshot["inventory"])
+def dashboard_model(snapshot, repository_rules, approved_findings=None):
+    approved_by_uuid = {item["rule_uuid"]: dict(item, status="Reviewed finding") for item in (approved_findings or [])}
+    correlation = correlate_rules(repository_rules, snapshot["inventory"], approved_by_uuid)
     rows = correlation["matched"] + correlation["repository_only"] + correlation["elastic_only"]
     metrics = snapshot_metrics(snapshot["inventory"])
     review_rows = [row for row in rows if row["review_flags"]]
@@ -450,6 +481,10 @@ def dashboard_model(snapshot, repository_rules):
             "review_count": len(review_rows),
             "total_alerts": metrics["total_alerts"],
             "alert_available": metrics["alert_available"],
+            "ai_investigated": sum(row["uuid"] is not None and row["investigation"]["reviewed"] for row in rows),
+            "ai_human_review": 0,
+            "ai_not_investigated": metrics["total"] - sum(row["uuid"] is not None and row["investigation"]["reviewed"] for row in rows),
+            "ai_last_investigation": max((row["investigation"].get("investigated_at") or "" for row in rows if row["investigation"]["reviewed"]), default=""),
         },
         "rows": rows,
         "review_sections": {
@@ -459,6 +494,7 @@ def dashboard_model(snapshot, repository_rules):
                 row for row in rows
                 if row["telemetry_health"]["status"] in {"STALE", "MISSING", "UNAVAILABLE", "UNKNOWN"}
             ],
+            "ai_findings": [row for row in rows if row["investigation"]["reviewed"]],
             "duplicate_candidates": [
                 [row for row in rows if row["uuid"] in group]
                 for group in snapshot_metrics(snapshot["inventory"])["duplicate_candidates"]
@@ -476,6 +512,7 @@ def dashboard_model(snapshot, repository_rules):
             "Telemetry freshness is a configurable ingestion-availability heuristic and does not prove detection effectiveness.",
             "Zero alerts are a review opportunity, not a failure classification.",
             "Fixture matcher status is not a real Elastic KQL execution result.",
+            "AI findings are published only after human review and are historical assessments, not current live-health measurements.",
             "True-positive and false-positive metrics are not assessed without labeled outcome data.",
         ],
     }
@@ -508,7 +545,7 @@ def dashboard_html(model):
     <section class=\"panel\">
       <div class=\"section-heading\"><div><p class=\"eyebrow\">Inventory</p><h2>Detection coverage and health</h2></div><p id=\"inventory-count\" class=\"muted\"></p></div>
       <div class=\"controls\"><label>Search<input id=\"search\" type=\"search\" placeholder=\"Name, stable ID, or UUID\"></label><label>Health<select id=\"health-filter\"></select></label><label>Severity<select id=\"severity-filter\"></select></label><label>ATT&amp;CK technique<select id=\"technique-filter\"></select></label></div>
-      <div class=\"table-wrap\"><table><thead><tr><th data-sort=\"name\">Detection</th><th data-sort=\"rule_id\">Stable ID</th><th>ATT&amp;CK</th><th data-sort=\"severity\">Severity</th><th data-sort=\"type\">Type</th><th>Deployment</th><th data-sort=\"status\">Operational health</th><th>Telemetry</th><th>Last execution</th><th data-sort=\"alert_count\">Alerts</th><th>Review</th></tr></thead><tbody id=\"inventory-body\"></tbody></table></div>
+      <div class=\"table-wrap\"><table><thead><tr><th data-sort=\"name\">Detection</th><th data-sort=\"rule_id\">Stable ID</th><th>ATT&amp;CK</th><th data-sort=\"severity\">Severity</th><th data-sort=\"type\">Type</th><th>Deployment</th><th data-sort=\"status\">Operational health</th><th>Telemetry</th><th>AI investigation</th><th>Last execution</th><th data-sort=\"alert_count\">Alerts</th><th>Review</th></tr></thead><tbody id=\"inventory-body\"></tbody></table></div>
     </section>
     <section class=\"details-layout\"><aside class=\"panel\"><p class=\"eyebrow\">Rule detail</p><div id=\"rule-detail\" class=\"detail-empty\">Select a detection to inspect its independent health dimensions.</div></aside><aside class=\"panel\"><p class=\"eyebrow\">Review queue</p><div id=\"review-sections\"></div></aside></section>
     <section class=\"panel\"><p class=\"eyebrow\">Interpretation</p><h2>What this dashboard does not claim</h2><ul id=\"limitations\" class=\"limitations\"></ul></section>
@@ -550,7 +587,7 @@ DASHBOARD_JS_CONTENT = r"""
   const formatAlert = (row) => !row.alert_activity.available ? "N/A" : row.alert_activity.count === 0 ? "0" : String(row.alert_activity.count);
   const renderSummary = () => {
     const cards = [
-      ["Repository-managed", model.summary.repository_managed], ["Deployed Elastic rules", model.summary.deployed_rules], ["Enabled / disabled", `${model.summary.enabled} / ${model.summary.disabled}`], ["Healthy", model.summary.statuses.HEALTHY], ["Execution concerns", model.summary.statuses.FAILED + model.summary.statuses.DEGRADED + model.summary.statuses.STALE], ["Requires review", model.summary.review_count], ["Alerts in lookback", model.summary.alert_available ? model.summary.total_alerts : "N/A"]
+      ["Repository-managed", model.summary.repository_managed], ["Deployed Elastic rules", model.summary.deployed_rules], ["Enabled / disabled", `${model.summary.enabled} / ${model.summary.disabled}`], ["Healthy", model.summary.statuses.HEALTHY], ["Execution concerns", model.summary.statuses.FAILED + model.summary.statuses.DEGRADED + model.summary.statuses.STALE], ["Requires review", model.summary.review_count], ["Alerts in lookback", model.summary.alert_available ? model.summary.total_alerts : "N/A"], ["AI investigated", model.summary.ai_investigated], ["AI not yet investigated", model.summary.ai_not_investigated], ["AI requires review", model.summary.ai_human_review], ["Last AI investigation", model.summary.ai_last_investigation || "N/A"]
     ];
     const parent = byId("summary-cards"); clear(parent); cards.forEach(([label, value]) => { const card = element("article", "card"); const title = element("div", "card-label"); text(title, label); const amount = element("div", "card-value"); text(amount, value); card.append(title, amount); parent.appendChild(card); });
   };
@@ -564,9 +601,9 @@ DASHBOARD_JS_CONTENT = r"""
   const renderRows = () => {
     const rows = filteredRows(); const body = byId("inventory-body"); clear(body); text(byId("inventory-count"), `${rows.length} of ${model.rows.length} detections`);
     rows.forEach((row) => { const tr = element("tr"); tr.dataset.rule = row.uuid || row.rule_id; const values = [
-      [row.name, row.uuid || "No deployed UUID"], [row.rule_id], [row.techniques.length ? row.techniques.join(", ") : "N/A"], [row.severity], [row.type], [row.deployment.state + (row.deployment.enabled === null ? "" : row.deployment.enabled ? " · enabled" : " · disabled")], [row.operational_health.status], [row.telemetry_health.status], [row.operational_health.last_execution.date || "N/A"], [formatAlert(row)], [row.review_flags.length ? row.review_flags.join(", ") : "None"]
+      [row.name, row.uuid || "No deployed UUID"], [row.rule_id], [row.techniques.length ? row.techniques.join(", ") : "N/A"], [row.severity], [row.type], [row.deployment.state + (row.deployment.enabled === null ? "" : row.deployment.enabled ? " · enabled" : " · disabled")], [row.operational_health.status], [row.telemetry_health.status], [row.investigation.status], [row.operational_health.last_execution.date || "N/A"], [formatAlert(row)], [row.review_flags.length ? row.review_flags.join(", ") : "None"]
     ];
-      values.forEach((parts, index) => { const td = element("td"); if (index === 0) { const name = element("div", "rule-name"); text(name, parts[0]); const sub = element("div", "small"); text(sub, parts[1]); td.append(name, sub); } else if (index === 5 || index === 6 || index === 7) { td.appendChild(badge(parts[0])); } else if (index === 10 && row.review_flags.length) { row.review_flags.forEach((flag) => { const marker = badge(flag); marker.classList.add("flag"); td.appendChild(marker); }); } else { text(td, parts[0]); } tr.appendChild(td); });
+      values.forEach((parts, index) => { const td = element("td"); if (index === 0) { const name = element("div", "rule-name"); text(name, parts[0]); const sub = element("div", "small"); text(sub, parts[1]); td.append(name, sub); } else if (index === 5 || index === 6 || index === 7 || index === 8) { td.appendChild(badge(parts[0])); } else if (index === 11 && row.review_flags.length) { row.review_flags.forEach((flag) => { const marker = badge(flag); marker.classList.add("flag"); td.appendChild(marker); }); } else { text(td, parts[0]); } tr.appendChild(td); });
       tr.addEventListener("click", () => renderDetail(row)); body.appendChild(tr);
     });
   };
@@ -580,6 +617,7 @@ DASHBOARD_JS_CONTENT = r"""
       patterns.appendChild(line);
     });
     field("Telemetry patterns", row.telemetry_health.patterns.length ? patterns : row.telemetry_health.note || "No per-pattern assessment available.", grid);
+    field("AI investigation", row.investigation.status, grid); field("AI reviewed", row.investigation.reviewed ? "Yes" : "No", grid); field("AI summary", row.investigation.reviewed_summary || row.investigation.note, grid); field("AI potential causes", (row.investigation.potential_causes || []).join("; "), grid); field("AI recommended action", row.investigation.recommended_action, grid); field("AI uncertainties", (row.investigation.uncertainties || []).join("; "), grid); field("AI investigation timestamp", row.investigation.investigated_at, grid);
     field("Alert activity", formatAlert(row), grid); field("Last alert", row.alert_activity.last_alert, grid); field("MITRE ATT&CK", row.techniques.join(", ") || "N/A", grid); field("Validation", `${row.validation_health.manifest_coverage}; fixture results: ${row.validation_health.offline_fixture_tests}`, grid); field("Effectiveness", `${row.detection_effectiveness.status}: ${row.detection_effectiveness.note}`, grid); field("Review flags", row.review_flags.join(", ") || "None", grid); target.append(title, grid); };
   const reviewList = (title, items, formatter) => { const wrap = element("section", "review-group"); const heading = element("h3"); text(heading, title); const list = element("ul"); if (!items.length) { const item = element("li"); text(item, "None"); list.appendChild(item); } else { items.forEach((item) => { const line = element("li"); text(line, formatter(item)); list.appendChild(line); }); } wrap.append(heading, list); return wrap; };
   const renderReviews = () => { const target = byId("review-sections"); clear(target); target.append(
@@ -587,7 +625,8 @@ DASHBOARD_JS_CONTENT = r"""
     reviewList("Failed, degraded, or stale", model.review_sections.execution_concerns, (row) => `${row.name}: ${row.operational_health.status}`),
     reviewList("Potential duplicate names", model.review_sections.duplicate_candidates, (group) => group.map((row) => `${row.name} [${row.uuid}]`).join("; ")),
     reviewList("Insufficient health data", model.review_sections.insufficient_data, (row) => `${row.name}: ${row.operational_health.status}`),
-    reviewList("Telemetry freshness concerns", model.review_sections.telemetry_concerns, (row) => `${row.name}: ${row.telemetry_health.status}`)
+    reviewList("Telemetry freshness concerns", model.review_sections.telemetry_concerns, (row) => `${row.name}: ${row.telemetry_health.status}`),
+    reviewList("Reviewed AI investigations", model.review_sections.ai_findings, (row) => `${row.name}: ${row.investigation.reviewed_summary || row.investigation.status}`)
   ); };
   const renderLimitations = () => { const list = byId("limitations"); clear(list); model.limitations.forEach((item) => { const li = element("li"); text(li, item); list.appendChild(li); }); };
   const bind = () => { byId("search").addEventListener("input", (event) => { state.query = event.target.value.toLowerCase().trim(); renderRows(); }); [["health-filter", "health"], ["severity-filter", "severity"], ["technique-filter", "technique"]].forEach(([id, key]) => byId(id).addEventListener("change", (event) => { state[key] = event.target.value; renderRows(); })); document.querySelectorAll("th[data-sort]").forEach((header) => header.addEventListener("click", () => { const next = header.dataset.sort; state.direction = state.sort === next ? -state.direction : 1; state.sort = next; renderRows(); })); };
@@ -695,7 +734,8 @@ def build_from_arguments(arguments):
         Path(arguments.detections_directory),
         Path(arguments.manifest),
     )
-    model = dashboard_model(snapshot, repository_rules)
+    approved_findings = load_approved_findings(Path(arguments.approved_findings))
+    model = dashboard_model(snapshot, repository_rules, approved_findings)
     targets = generate_dashboard(model, reports_directory)
     if arguments.site_directory:
         site_targets = generate_pages_site(model, Path(arguments.site_directory))
@@ -716,6 +756,7 @@ def parse_arguments(argv=None):
     )
     parser.add_argument("--detections-directory", default=DEFAULT_DETECTIONS_DIRECTORY)
     parser.add_argument("--manifest", default=REPOSITORY_ROOT / "tests" / "test_manifest.json")
+    parser.add_argument("--approved-findings", default=DEFAULT_REPORTS_DIRECTORY / APPROVED_FINDINGS_FILENAME)
     return parser.parse_args(argv)
 
 

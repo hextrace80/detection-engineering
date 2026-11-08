@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import tomllib
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -22,6 +23,8 @@ DEFAULT_SNAPSHOT = REPOSITORY_ROOT / "reports" / "detection_health_snapshot.json
 DEFAULT_OUTPUT = REPOSITORY_ROOT / "reports" / "agent_findings.json"
 DEFAULT_DETECTIONS = REPOSITORY_ROOT / "detections"
 DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_BATCH_MAX_DETECTIONS = 10
+DEFAULT_BATCH_MAX_REQUESTS = 30
 MAX_TOOL_CALLS = 3
 MAX_MODEL_OUTPUT_TOKENS = 800
 MAX_LIST_ITEMS = 10
@@ -79,6 +82,22 @@ def _safe_text(value):
     if not isinstance(value, str):
         return None
     return value[:MAX_TEXT_LENGTH]
+
+
+def _timestamp():
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _positive_int(value, name, default):
+    if value is None:
+        return default
+    try:
+        value = int(value)
+    except (TypeError, ValueError) as error:
+        raise HealthAgentError(f"{name} must be a positive integer") from error
+    if value <= 0:
+        raise HealthAgentError(f"{name} must be a positive integer")
+    return value
 
 
 def load_snapshot(path):
@@ -147,13 +166,15 @@ class EvidenceTools:
                 for technique in threat.get("technique", []):
                     if isinstance(technique, dict) and isinstance(technique.get("id"), str):
                         techniques.append({"id": technique["id"], "name": _safe_text(technique.get("name"))})
+        confirmed_patterns = [item for item in (local_rule or {}).get("index", []) if isinstance(item, str)][:MAX_LIST_ITEMS]
         return {
             "rule_id": self.rule["uuid"],
             "name": _safe_text(self.rule.get("name")),
             "stable_rule_id": _safe_text(self.rule.get("rule_id")),
             "query_type": _safe_text((local_rule or {}).get("type") or self.rule.get("type")),
             "query_available": bool(isinstance(local_rule, dict) and isinstance(local_rule.get("query"), str)),
-            "index_patterns": [item for item in (local_rule or {}).get("index", []) if isinstance(item, str)][:MAX_LIST_ITEMS],
+            "index_patterns": confirmed_patterns,
+            "telemetry_dependency_status": "CONFIRMED" if local_rule is not None else "DEPENDENCY_UNVERIFIED",
             "attack_techniques": techniques[:MAX_LIST_ITEMS],
             "severity": _safe_text((local_rule or {}).get("severity")),
             "risk_score": _scalar((local_rule or {}).get("risk_score")),
@@ -165,12 +186,21 @@ class EvidenceTools:
         execution = self.rule.get("execution") if isinstance(self.rule.get("execution"), dict) else {}
         activity = self.rule.get("alert_activity") if isinstance(self.rule.get("alert_activity"), dict) else None
         flags = self.rule.get("review_flags") if isinstance(self.rule.get("review_flags"), list) else []
+        if self.rule.get("alert_error"):
+            alert_count_status = "UNAVAILABLE"
+        elif activity is None:
+            alert_count_status = "UNKNOWN"
+        elif activity.get("count") == 0:
+            alert_count_status = "CONFIRMED_ZERO"
+        else:
+            alert_count_status = "CONFIRMED_COUNT"
         return {
             "rule_id": self.rule["uuid"],
             "execution_status": _safe_text(self.rule.get("status")),
             "last_execution": _safe_text(execution.get("date")),
             "last_execution_status": _safe_text(execution.get("status")),
             "alert_count": _scalar(activity.get("count")) if activity else None,
+            "alert_count_status": alert_count_status,
             "most_recent_alert": _safe_text(activity.get("last_alert")) if activity else None,
             "alert_lookback": _safe_text(self.snapshot.get("lookback")),
             "health_flags": [_safe_text(flag) for flag in flags if isinstance(flag, str)][:MAX_LIST_ITEMS],
@@ -180,8 +210,10 @@ class EvidenceTools:
     def get_telemetry_evidence(self, rule_id):
         self._require_selected(rule_id)
         telemetry = self.rule.get("telemetry")
+        local_rule = _find_toml_rule(self.detections_directory, self.rule.get("rule_id"))
+        confirmed_patterns = [item.strip().casefold() for item in (local_rule or {}).get("index", []) if isinstance(item, str) and item.strip()]
         if not isinstance(telemetry, dict):
-            return {"rule_id": self.rule["uuid"], "status": "NOT_ASSESSED", "patterns": [], "assessment_available": False}
+            return {"rule_id": self.rule["uuid"], "status": "DEPENDENCY_UNVERIFIED" if local_rule is None else "NOT_ASSESSED", "patterns": [], "internal_pattern_observations": [], "assessment_available": False, "dependency_status": "DEPENDENCY_UNVERIFIED" if local_rule is None else "CONFIRMED"}
         patterns = []
         raw_patterns = telemetry.get("patterns")
         if isinstance(raw_patterns, list):
@@ -191,13 +223,17 @@ class EvidenceTools:
                         "index_pattern", "status", "last_event_timestamp", "timestamp_field",
                         "recent_event_count", "freshness_threshold_seconds", "assessed_at",
                     )})
+        relevant_patterns = [pattern for pattern in patterns if isinstance(pattern.get("index_pattern"), str) and pattern["index_pattern"].strip().casefold() in confirmed_patterns]
+        dependency_status = "CONFIRMED" if local_rule is not None and relevant_patterns else "DEPENDENCY_UNVERIFIED"
         return {
             "rule_id": self.rule["uuid"],
-            "status": _safe_text(telemetry.get("status")) or "UNKNOWN",
+            "status": _safe_text(telemetry.get("status")) if dependency_status == "CONFIRMED" else "DEPENDENCY_UNVERIFIED",
+            "dependency_status": dependency_status,
             "assessment_available": True,
             "assessed_at": _safe_text(telemetry.get("assessed_at")),
             "freshness_threshold_seconds": _scalar(telemetry.get("freshness_threshold_seconds")),
-            "patterns": patterns,
+            "patterns": relevant_patterns,
+            "internal_pattern_observations": patterns,
         }
 
     def dispatch(self, name, arguments):
@@ -283,8 +319,8 @@ def _safe_write_json(path, document):
             temporary.unlink(missing_ok=True)
 
 
-def run_investigation(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT, rule_uuid=None, client=None, model=None, detections_directory=DEFAULT_DETECTIONS):
-    snapshot = load_snapshot(snapshot_path)
+def run_investigation(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT, rule_uuid=None, client=None, model=None, detections_directory=DEFAULT_DETECTIONS, request_budget=None, snapshot=None, write_output=True):
+    snapshot = snapshot or load_snapshot(snapshot_path)
     selected = select_rule(snapshot, rule_uuid)
     tools = EvidenceTools(snapshot, selected, detections_directory)
     client = client or _create_client()
@@ -311,8 +347,11 @@ def run_investigation(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT
     }
     evidence = []
     seen_calls = set()
+    request_count = 0
     response = None
     while True:
+        if request_budget is not None and request_budget["used"] >= request_budget["limit"]:
+            raise HealthAgentError("Batch OpenAI request limit reached")
         try:
             response = client.responses.create(**request)
         except APIStatusError as error:
@@ -325,6 +364,9 @@ def run_investigation(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT
             raise HealthAgentError("OpenAI investigation connection failed") from error
         except Exception as error:
             raise HealthAgentError("OpenAI investigation request failed") from error
+        request_count += 1
+        if request_budget is not None:
+            request_budget["used"] += 1
         calls = _function_calls(response)
         history.extend(_value(response, "output"))
         if not calls:
@@ -364,9 +406,113 @@ def run_investigation(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT
         "evidence": evidence, "potential_causes": analysis["potential_causes"],
         "uncertainties": analysis["uncertainties"], "recommended_action": analysis["recommended_action"],
         "requires_human_review": True,
+        "private_run_summary": {"model_request_count": request_count, "completed_at": _timestamp()},
     }
-    _safe_write_json(output_path, report)
+    if write_output:
+        _safe_write_json(output_path, report)
     return report
+
+
+def select_rules(snapshot, mode="flagged", rule_uuid=None):
+    if mode not in {"single", "flagged", "all"}:
+        raise HealthAgentError("Investigation mode must be single, flagged, or all")
+    if mode == "single":
+        if rule_uuid is None:
+            raise HealthAgentError("single mode requires --rule-uuid")
+        rows = [select_rule(snapshot, rule_uuid)]
+    elif mode == "flagged":
+        rows = [row for row in snapshot["inventory"] if isinstance(row.get("review_flags"), list) and row["review_flags"]]
+    else:
+        rows = list(snapshot["inventory"])
+    deduplicated = []
+    seen = set()
+    for row in rows:
+        if row["uuid"] not in seen:
+            seen.add(row["uuid"])
+            deduplicated.append(row)
+    return deduplicated
+
+
+def _load_batch_checkpoint(path):
+    target = Path(path)
+    if not target.exists():
+        return None
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise HealthAgentError("Batch checkpoint could not be loaded") from error
+    if not isinstance(document, dict) or not isinstance(document.get("findings"), list) or not isinstance(document.get("errors"), list):
+        raise HealthAgentError("Batch checkpoint has an invalid schema")
+    return document
+
+
+def run_batch(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT, mode="flagged", rule_uuid=None, max_detections=None, max_requests=None, dry_run=False, resume=False, client=None, model=None, detections_directory=DEFAULT_DETECTIONS):
+    snapshot = load_snapshot(snapshot_path)
+    selected = select_rules(snapshot, mode, rule_uuid)
+    max_detections = _positive_int(max_detections, "max_detections", DEFAULT_BATCH_MAX_DETECTIONS)
+    max_requests = _positive_int(max_requests, "max_requests", DEFAULT_BATCH_MAX_REQUESTS)
+    selected = selected[:max_detections]
+    report = {
+        "schema_version": 1, "kind": "private_detection_health_batch", "created_at": _timestamp(),
+        "snapshot_generated_at": _safe_text(snapshot.get("generated_at")), "mode": mode,
+        "selected_rule_uuids": [row["uuid"] for row in selected], "dry_run": bool(dry_run),
+        "findings": [], "errors": [], "private_run_summary": {"model_request_count": 0},
+    }
+    if dry_run:
+        return report
+    if resume:
+        checkpoint = _load_batch_checkpoint(output_path)
+        if checkpoint is not None:
+            report["findings"] = checkpoint["findings"]
+            report["errors"] = checkpoint["errors"]
+            report["private_run_summary"] = checkpoint.get("private_run_summary", report["private_run_summary"])
+    completed = {item.get("rule_id") for item in report["findings"] if isinstance(item, dict) and isinstance(item.get("rule_id"), str)}
+    budget = {"used": _scalar(report["private_run_summary"].get("model_request_count")) or 0, "limit": max_requests}
+    for row in selected:
+        if row["uuid"] in completed:
+            continue
+        if budget["used"] >= budget["limit"]:
+            report["errors"].append({"rule_id": row["uuid"], "error": "Batch OpenAI request limit reached"})
+            _safe_write_json(output_path, report)
+            break
+        try:
+            finding = run_investigation(snapshot_path, output_path, row["uuid"], client, model, detections_directory, budget, snapshot, False)
+            report["findings"].append(finding)
+            completed.add(row["uuid"])
+        except HealthAgentError as error:
+            report["errors"].append({"rule_id": row["uuid"], "error": str(error)[:MAX_TEXT_LENGTH]})
+        report["private_run_summary"] = {"model_request_count": budget["used"], "max_model_requests": max_requests}
+        _safe_write_json(output_path, report)
+    return report
+
+
+def prepare_publication(batch_path, rule_uuid, reviewed_summary, output_path):
+    if not isinstance(rule_uuid, str) or not rule_uuid or not isinstance(reviewed_summary, str) or not reviewed_summary.strip():
+        raise HealthAgentError("Publication requires an approved rule UUID and reviewed summary")
+    batch = _load_batch_checkpoint(batch_path)
+    finding = next((item for item in batch["findings"] if isinstance(item, dict) and item.get("rule_id") == rule_uuid), None)
+    if finding is None or finding.get("requires_human_review") is not True:
+        raise HealthAgentError("Selected finding is not eligible for publication")
+    target = Path(output_path)
+    public = {"schema_version": 1, "findings": []}
+    if target.exists():
+        try:
+            public = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise HealthAgentError("Approved findings file could not be loaded") from error
+        if not isinstance(public, dict) or not isinstance(public.get("findings"), list):
+            raise HealthAgentError("Approved findings file has an invalid schema")
+    sanitized = {
+        "rule_uuid": finding["rule_id"], "rule_name": _safe_text(finding.get("rule_name")),
+        "reviewed": True, "reviewed_at": _timestamp(), "investigated_at": _safe_text(finding.get("private_run_summary", {}).get("completed_at")),
+        "reviewed_summary": _safe_text(reviewed_summary),
+        "potential_causes": [_safe_text(item) for item in finding.get("potential_causes", []) if isinstance(item, str)][:MAX_LIST_ITEMS],
+        "uncertainties": [_safe_text(item) for item in finding.get("uncertainties", []) if isinstance(item, str)][:MAX_LIST_ITEMS],
+        "recommended_action": _safe_text(finding.get("recommended_action")),
+    }
+    public["findings"] = [item for item in public["findings"] if not isinstance(item, dict) or item.get("rule_uuid") != rule_uuid] + [sanitized]
+    _safe_write_json(target, public)
+    return sanitized
 
 
 def main(argv=None):
@@ -375,9 +521,25 @@ def main(argv=None):
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--rule-uuid")
     parser.add_argument("--model")
+    parser.add_argument("--mode", choices=("single", "flagged", "all"), default="single")
+    parser.add_argument("--max-detections")
+    parser.add_argument("--max-requests")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--prepare-publication", action="store_true")
+    parser.add_argument("--batch-report")
+    parser.add_argument("--reviewed-summary")
     arguments = parser.parse_args(argv)
     try:
-        run_investigation(arguments.snapshot, arguments.output, arguments.rule_uuid, model=arguments.model)
+        if arguments.prepare_publication:
+            prepare_publication(arguments.batch_report, arguments.rule_uuid, arguments.reviewed_summary, arguments.output)
+        elif arguments.mode == "single" and not arguments.dry_run and arguments.max_detections is None and arguments.max_requests is None and not arguments.resume:
+            run_investigation(arguments.snapshot, arguments.output, arguments.rule_uuid, model=arguments.model)
+        else:
+            report = run_batch(arguments.snapshot, arguments.output, arguments.mode, arguments.rule_uuid, arguments.max_detections, arguments.max_requests, arguments.dry_run, arguments.resume, model=arguments.model)
+            if arguments.dry_run:
+                print(f"Dry run selected {len(report['selected_rule_uuids'])} detections")
+                return 0
     except HealthAgentError as error:
         print(f"ERROR: {error}")
         return 1
