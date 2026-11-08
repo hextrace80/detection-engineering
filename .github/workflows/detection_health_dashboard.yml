@@ -10,6 +10,7 @@ on:
       - 'tests/test_dashboard_workflow.py'
       - 'detections/**/*.toml'
       - 'reports/detection_health_snapshot.json'
+      - 'reports/approved_ai_findings.json'
       - '.github/workflows/detection_health_dashboard.yml'
       - 'README.md'
   schedule:

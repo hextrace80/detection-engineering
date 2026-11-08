@@ -292,6 +292,71 @@ class HealthAgentTests(unittest.TestCase):
         self.assertNotIn("evidence", json.dumps(stored))
         self.assertEqual(stored["findings"][0]["rule_uuid"], RULE_UUID)
 
+    def test_manifest_publication_supports_batch_approval_and_preserves_other_findings(self):
+        second_uuid = "22222222-2222-2222-2222-222222222222"
+        preserved_uuid = "33333333-3333-3333-3333-333333333333"
+        finding = lambda rule_uuid, name: {
+            "rule_id": rule_uuid, "rule_name": name, "requires_human_review": True,
+            "evidence": [{"private": "never publish"}], "potential_causes": ["Cause"],
+            "uncertainties": ["Unknown"], "recommended_action": "Review",
+            "private_run_summary": {"completed_at": "2026-01-01T00:00:00Z"},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            batch = directory / "batch.json"
+            manifest = directory / "review.json"
+            target = directory / "approved.json"
+            batch.write_text(json.dumps({"findings": [finding(RULE_UUID, "First"), finding(second_uuid, "Second")], "errors": []}), encoding="utf-8")
+            target.write_text(json.dumps({"schema_version": 1, "findings": [{"rule_uuid": preserved_uuid, "reviewed": True}]}), encoding="utf-8")
+            manifest.write_text(json.dumps({"schema_version": 1, "approvals": [
+                {"rule_uuid": RULE_UUID, "decision": "approved", "reviewed_summary": "Approved by analyst"},
+                {"rule_uuid": second_uuid, "decision": "rejected", "reviewed_summary": "Not ready for publication"},
+            ]}), encoding="utf-8")
+            result = health_agent.prepare_publication_from_manifest(batch, manifest, target)
+            stored = json.loads(target.read_text(encoding="utf-8"))
+        self.assertEqual([item["rule_uuid"] for item in result["published"]], [RULE_UUID])
+        self.assertEqual(result["rejected_rule_uuids"], [second_uuid])
+        self.assertEqual({item["rule_uuid"] for item in stored["findings"]}, {RULE_UUID, preserved_uuid})
+        self.assertNotIn("private", json.dumps(stored))
+
+    def test_manifest_publication_rejects_invalid_duplicate_and_missing_approvals(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            batch = directory / "batch.json"
+            manifest = directory / "review.json"
+            batch.write_text(json.dumps({"findings": [], "errors": []}), encoding="utf-8")
+            cases = (
+                ({"schema_version": 1, "approvals": [{"rule_uuid": "not-a-uuid", "decision": "approved", "reviewed_summary": "Review"}]}, "must be a UUID"),
+                ({"schema_version": 1, "approvals": [
+                    {"rule_uuid": RULE_UUID, "decision": "approved", "reviewed_summary": "Review"},
+                    {"rule_uuid": RULE_UUID, "decision": "rejected", "reviewed_summary": "Review"},
+                ]}, "duplicate"),
+                ({"schema_version": 1, "approvals": [{"rule_uuid": RULE_UUID, "decision": "approved", "reviewed_summary": "Review"}]}, "does not exist"),
+            )
+            for document, message in cases:
+                with self.subTest(message=message):
+                    manifest.write_text(json.dumps(document), encoding="utf-8")
+                    with self.assertRaisesRegex(health_agent.HealthAgentError, message):
+                        health_agent.prepare_publication_from_manifest(batch, manifest, directory / "approved.json")
+
+    def test_manifest_publication_rejects_private_or_duplicate_batch_findings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            manifest = directory / "review.json"
+            batch = directory / "batch.json"
+            manifest.write_text(json.dumps({"schema_version": 1, "approvals": [
+                {"rule_uuid": RULE_UUID, "decision": "approved", "reviewed_summary": "Reviewed"},
+            ]}), encoding="utf-8")
+            batch.write_text(json.dumps({"findings": [
+                {"rule_id": RULE_UUID, "requires_human_review": True},
+                {"rule_id": RULE_UUID, "requires_human_review": True},
+            ], "errors": []}), encoding="utf-8")
+            with self.assertRaisesRegex(health_agent.HealthAgentError, "duplicate"):
+                health_agent.prepare_publication_from_manifest(batch, manifest, directory / "approved.json")
+            batch.write_text(json.dumps({"findings": [{"rule_id": "not-a-uuid"}], "errors": []}), encoding="utf-8")
+            with self.assertRaisesRegex(health_agent.HealthAgentError, "must be a UUID"):
+                health_agent.prepare_publication_from_manifest(batch, manifest, directory / "approved.json")
+
 
 if __name__ == "__main__":
     unittest.main()

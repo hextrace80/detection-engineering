@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import tomllib
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +30,10 @@ MAX_TOOL_CALLS = 3
 MAX_MODEL_OUTPUT_TOKENS = 800
 MAX_LIST_ITEMS = 10
 MAX_TEXT_LENGTH = 500
+PUBLIC_FINDING_FIELDS = frozenset({
+    "rule_uuid", "rule_name", "reviewed", "reviewed_at", "investigated_at", "reviewed_summary",
+    "potential_causes", "uncertainties", "recommended_action",
+})
 
 
 class HealthAgentError(Exception):
@@ -486,14 +491,42 @@ def run_batch(snapshot_path=DEFAULT_SNAPSHOT, output_path=DEFAULT_OUTPUT, mode="
     return report
 
 
-def prepare_publication(batch_path, rule_uuid, reviewed_summary, output_path):
-    if not isinstance(rule_uuid, str) or not rule_uuid or not isinstance(reviewed_summary, str) or not reviewed_summary.strip():
-        raise HealthAgentError("Publication requires an approved rule UUID and reviewed summary")
-    batch = _load_batch_checkpoint(batch_path)
-    finding = next((item for item in batch["findings"] if isinstance(item, dict) and item.get("rule_id") == rule_uuid), None)
-    if finding is None or finding.get("requires_human_review") is not True:
-        raise HealthAgentError("Selected finding is not eligible for publication")
-    target = Path(output_path)
+def _validate_publication_uuid(value, label="rule UUID"):
+    if not isinstance(value, str):
+        raise HealthAgentError(f"Publication {label} must be a UUID")
+    try:
+        return str(uuid.UUID(value))
+    except (AttributeError, ValueError) as error:
+        raise HealthAgentError(f"Publication {label} must be a UUID") from error
+
+
+def _load_review_manifest(path):
+    try:
+        manifest = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise HealthAgentError("Review manifest could not be loaded") from error
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1 or not isinstance(manifest.get("approvals"), list):
+        raise HealthAgentError("Review manifest has an invalid schema")
+
+    approvals, seen = [], set()
+    for entry in manifest["approvals"]:
+        if not isinstance(entry, dict) or set(entry) != {"rule_uuid", "decision", "reviewed_summary"}:
+            raise HealthAgentError("Review manifest approval entries have an invalid schema")
+        rule_uuid = _validate_publication_uuid(entry["rule_uuid"])
+        if rule_uuid in seen:
+            raise HealthAgentError("Review manifest contains a duplicate rule UUID")
+        decision, summary = entry["decision"], entry["reviewed_summary"]
+        if decision not in {"approved", "rejected"}:
+            raise HealthAgentError("Review manifest decision must be approved or rejected")
+        if not isinstance(summary, str) or not summary.strip() or len(summary.strip()) > MAX_TEXT_LENGTH:
+            raise HealthAgentError("Review manifest requires a non-empty reviewed summary within the allowed length")
+        seen.add(rule_uuid)
+        approvals.append({"rule_uuid": rule_uuid, "decision": decision, "reviewed_summary": summary.strip()})
+    return approvals
+
+
+def _load_approved_findings(target):
+    target = Path(target)
     public = {"schema_version": 1, "findings": []}
     if target.exists():
         try:
@@ -502,16 +535,76 @@ def prepare_publication(batch_path, rule_uuid, reviewed_summary, output_path):
             raise HealthAgentError("Approved findings file could not be loaded") from error
         if not isinstance(public, dict) or not isinstance(public.get("findings"), list):
             raise HealthAgentError("Approved findings file has an invalid schema")
-    sanitized = {
+    for item in public["findings"]:
+        if not isinstance(item, dict) or set(item).difference(PUBLIC_FINDING_FIELDS):
+            raise HealthAgentError("Approved findings file contains non-public fields")
+        if item.get("reviewed") is not True:
+            raise HealthAgentError("Approved findings file contains an unreviewed finding")
+        _validate_publication_uuid(item.get("rule_uuid"), "finding rule UUID")
+    return public
+
+
+def _sanitize_public_finding(finding, reviewed_summary):
+    if finding.get("requires_human_review") is not True:
+        raise HealthAgentError("Selected finding is not eligible for publication")
+    completed_at = finding.get("private_run_summary", {})
+    if not isinstance(completed_at, dict):
+        completed_at = {}
+    return {
         "rule_uuid": finding["rule_id"], "rule_name": _safe_text(finding.get("rule_name")),
-        "reviewed": True, "reviewed_at": _timestamp(), "investigated_at": _safe_text(finding.get("private_run_summary", {}).get("completed_at")),
+        "reviewed": True, "reviewed_at": _timestamp(), "investigated_at": _safe_text(completed_at.get("completed_at")),
         "reviewed_summary": _safe_text(reviewed_summary),
         "potential_causes": [_safe_text(item) for item in finding.get("potential_causes", []) if isinstance(item, str)][:MAX_LIST_ITEMS],
         "uncertainties": [_safe_text(item) for item in finding.get("uncertainties", []) if isinstance(item, str)][:MAX_LIST_ITEMS],
         "recommended_action": _safe_text(finding.get("recommended_action")),
     }
-    public["findings"] = [item for item in public["findings"] if not isinstance(item, dict) or item.get("rule_uuid") != rule_uuid] + [sanitized]
+
+
+def prepare_publication_from_manifest(batch_path, review_manifest_path, output_path):
+    """Publish only manifest-approved, reviewed findings; private evidence stays in the batch report."""
+    approvals = _load_review_manifest(review_manifest_path)
+    batch = _load_batch_checkpoint(batch_path)
+    findings = {}
+    for item in batch["findings"]:
+        if not isinstance(item, dict):
+            raise HealthAgentError("Private batch report contains an invalid finding")
+        rule_uuid = _validate_publication_uuid(item.get("rule_id"), "finding rule UUID")
+        if rule_uuid in findings:
+            raise HealthAgentError("Private batch report contains a duplicate finding rule UUID")
+        findings[rule_uuid] = item
+    approved = [entry for entry in approvals if entry["decision"] == "approved"]
+    missing = [entry["rule_uuid"] for entry in approved if entry["rule_uuid"] not in findings]
+    if missing:
+        raise HealthAgentError("An approved review-manifest finding does not exist in the private batch report")
+
+    target = Path(output_path)
+    public = _load_approved_findings(target)
+    replacements = {
+        entry["rule_uuid"]: _sanitize_public_finding(findings[entry["rule_uuid"]], entry["reviewed_summary"])
+        for entry in approved
+    }
+    preserved = [
+        item for item in public["findings"]
+        if _validate_publication_uuid(item.get("rule_uuid"), "finding rule UUID") not in replacements
+    ]
+    public["findings"] = preserved + list(replacements.values())
     _safe_write_json(target, public)
+    return {"published": list(replacements.values()), "rejected_rule_uuids": [entry["rule_uuid"] for entry in approvals if entry["decision"] == "rejected"]}
+
+
+def prepare_publication(batch_path, rule_uuid, reviewed_summary, output_path):
+    """Backward-compatible single-finding wrapper for local review tooling."""
+    rule_uuid = _validate_publication_uuid(rule_uuid)
+    if not isinstance(reviewed_summary, str) or not reviewed_summary.strip():
+        raise HealthAgentError("Publication requires an approved rule UUID and reviewed summary")
+    batch = _load_batch_checkpoint(batch_path)
+    finding = next((item for item in batch["findings"] if isinstance(item, dict) and item.get("rule_id") == rule_uuid), None)
+    if finding is None:
+        raise HealthAgentError("Selected finding is not eligible for publication")
+    public = _load_approved_findings(Path(output_path))
+    sanitized = _sanitize_public_finding(finding, reviewed_summary)
+    public["findings"] = [item for item in public["findings"] if not isinstance(item, dict) or item.get("rule_uuid") != rule_uuid] + [sanitized]
+    _safe_write_json(Path(output_path), public)
     return sanitized
 
 
@@ -528,11 +621,17 @@ def main(argv=None):
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--prepare-publication", action="store_true")
     parser.add_argument("--batch-report")
+    parser.add_argument("--review-manifest")
     parser.add_argument("--reviewed-summary")
     arguments = parser.parse_args(argv)
     try:
         if arguments.prepare_publication:
-            prepare_publication(arguments.batch_report, arguments.rule_uuid, arguments.reviewed_summary, arguments.output)
+            if not arguments.batch_report:
+                raise HealthAgentError("Publication requires --batch-report")
+            if arguments.review_manifest:
+                prepare_publication_from_manifest(arguments.batch_report, arguments.review_manifest, arguments.output)
+            else:
+                prepare_publication(arguments.batch_report, arguments.rule_uuid, arguments.reviewed_summary, arguments.output)
         elif arguments.mode == "single" and not arguments.dry_run and arguments.max_detections is None and arguments.max_requests is None and not arguments.resume:
             run_investigation(arguments.snapshot, arguments.output, arguments.rule_uuid, model=arguments.model)
         else:

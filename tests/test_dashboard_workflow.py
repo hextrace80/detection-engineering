@@ -45,6 +45,7 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertNotIn("elastic_sync.yml", self.workflow)
         self.assertIn("tests/test_detection_health.py", self.workflow)
         self.assertIn("tests/test_detection_health_dashboard.py", self.workflow)
+        self.assertIn("reports/approved_ai_findings.json", self.workflow)
 
 
 if __name__ == "__main__":
